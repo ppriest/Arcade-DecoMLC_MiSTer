@@ -1,2 +1,10 @@
 scripts/hooks/* text eol=lf
 *.sh text eol=lf
+rtl/cpu/sh7604/** -text
+rtl/cpu/jtsh7604.sv -text
+rtl/cpu/jtsh7604_cps3_region.v -text
+rtl/sound/ymz280b/** -text
+rtl/jteeprom/** -text
+rtl/memory/** -text
+rtl/debug/** -text
+sim/common/** -text

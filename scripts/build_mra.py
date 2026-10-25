@@ -1,0 +1,331 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Write the .mra files and prove each one byte for byte.
+
+    python scripts/build_mra.py                      # every set -> releases/_dev/
+    python scripts/build_mra.py avengrgs             # one set
+    python scripts/build_mra.py --check              # verify only, write nothing
+    python scripts/build_mra.py --image avengrgs out.bin   # the download image, for the benches
+    python scripts/build_mra.py --release            # -> releases/ (only with a released .rbf)
+
+The image is the .mra's: MAME's regions in order at scripts/mlc_layout.py's bases, as the HPS
+streams it. The core's download path then moves gfx1 into its unit layout
+(rtl/memory/mlc_dl_xform.sv); sim/download_tb proves that against mlc_layout.build_image.
+Each region is built twice: by this script from the driver's ROM_START records
+(scripts/extract_romstart.py), and by re-reading the written .mra with scripts/mra.py
+(mra-tools-c's semantics); the two must be identical. Interleave maps are not reasoned about:
+each candidate is tried against the ROM_START image and the one that reproduces it is written.
+After Arcade-DreamWorld_MiSTer's scripts/build_mra.py.
+"""
+import argparse
+import itertools
+import re
+import subprocess
+import sys
+import zipfile
+from pathlib import Path
+from xml.sax.saxutils import escape
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import extract_romstart as ers     # noqa: E402
+import mlc_layout as layout        # noqa: E402
+import mra as mra_lib              # noqa: E402
+from coretools import setting      # noqa: E402
+
+REPO = Path(__file__).resolve().parent.parent
+DRIVER = Path(setting("MAME_SRC") or "E:/mame/src/mame/dataeast/deco_mlc.cpp")
+ROMDIRS = [Path(p) for p in (setting("MAME_ROMPATH") or "F:/Emulation/roms/MAME ROMs").split(";")]
+
+# set: parent or None. The SH-2 sets first (docs/ROADMAP.md, Game scope).
+SETS = {"avengrgs": None, "avengrgsj": "avengrgs"}
+# the .rbf: DecoMLC for the SH-2 machine config (avengrgs), DecoMLC156 for the DE156 ones
+# (docs/ROADMAP.md, "Two .rbfs, one project"); see <rbf> below
+# Four buttons a player (deco_mlc.cpp 379-381, 400); the names are the project owner's
+# correction of ones taken from MAME by observation (docs/HACKS.md).
+BUTTONS = {"avengrgs": ["Light Punch", "Heavy Punch", "Light Kick", "Heavy Kick"]}
+CATEGORY = {"avengrgs": "Fighter"}
+ROTATION = {0: "horizontal", 90: "vertical (cw)", 270: "vertical (ccw)"}
+ROT_CODE = {0: 0, 90: 1, 270: 2}   # mod byte bits 2:1
+# MAME's hiscore plugin data, beside the driver's source tree
+HISCORE_DAT = DRIVER.parents[3] / "plugins" / "hiscore" / "hiscore.dat"
+# rtl/hiscore.v header (Psikyo's): START_WAIT 0x199A57EF clk before the first check, CHECK_WAIT
+# 0x3FFF, then the table's fixed fields; one 8-byte line per entry follows
+HISCORE_HEADER = "19 9A 57 EF 3F FF 00 02 00 02 00 01 00 0F 10 00"
+
+# region -> (base, capacity)
+REGIONS = (("maincpu", layout.MAINCPU_BASE, 0x100000), ("gfx1", layout.GFX1_BASE, layout.GFX1_SIZE),
+           ("gfx2", layout.GFX2_BASE, layout.GFX2_SIZE), ("ymz", layout.YMZ_BASE, layout.YMZ_SIZE))
+
+
+def game_info(text, setname):
+    m = re.search(r"GAME\(\s*(\d+)\s*,\s*" + setname + r"\s*,[^\n]*", text)
+    if not m:
+        sys.exit(f"no GAME line for {setname}")
+    f = [x.strip() for x in m.group(0).split("(", 1)[1].split(",")]
+    q = re.findall(r'"([^"]*)"', m.group(0))
+    return {"year": f[0], "machine": f[3], "ports": f[4], "rot": int(f[7][3:]),
+            "manufacturer": q[0], "title": q[1]}
+
+
+def zips_for(setname):
+    names = [setname + ".zip"] + ([SETS[setname] + ".zip"] if SETS[setname] else [])
+    found = []
+    for n in names:
+        for d in [REPO / "roms"] + ROMDIRS:
+            if (d / n).exists():
+                found.append(d / n)
+                break
+    return names, found
+
+
+def region_size(body, region):
+    m = re.search(r'ROM_REGION\w*\(\s*(0x[0-9a-fA-F]+)\s*,\s*"' + re.escape(region) + '"', body)
+    return int(m.group(1), 16) if m else 0
+
+
+def load_region(zs, records, size):
+    """ROM_START records -> region bytes, as MAME's loader puts them (zero fill)."""
+    out = bytearray(size)
+    for kind, name, dest, length, crc, *rest in records:
+        data = mra_lib._zip_read(zs, name, crc)
+        assert len(data) == length, (name, len(data), length)
+        if kind == "load":
+            out[dest:dest + length] = data
+        elif kind == "load16_byte":
+            out[dest:dest + 2 * length:2] = data
+        elif kind == "load32_wswap":
+            # ROM_GROUPWORD | ROM_SKIP(2) | ROM_REVERSE: each 16-bit word byte-reversed into
+            # every other word of the region (romload.cpp)
+            out[dest:dest + 2 * length:4] = data[1::2]
+            out[dest + 1:dest + 2 * length:4] = data[0::2]
+        else:
+            sys.exit(f"record kind {kind} not handled")
+    return bytes(out)
+
+
+def hiscore_entries(setname):
+    """The set's hiscore.dat entries as (address, length, start byte, end byte), or []."""
+    if not HISCORE_DAT.exists():
+        return []
+    names, entries, out = [], [], {}
+    for raw in HISCORE_DAT.read_text(encoding="utf-8", errors="replace").splitlines() + [""]:
+        line = raw.strip()
+        if line.endswith(":") and not line.startswith(("@", ";")):
+            if entries:
+                names, entries = [], []
+            names.append(line[:-1])
+        elif line.startswith("@"):
+            entries.append(line)
+        elif not line and entries:
+            for n in names:
+                out[n] = entries
+            names, entries = [], []
+    parsed = []
+    for line in out.get(setname, []):
+        f = line.split(",")
+        if f[0] != "@:maincpu" or f[1] != "program":
+            sys.exit(f"hiscore.dat {setname}: {line!r} is not on the main CPU's program space")
+        parsed.append(tuple(int(x, 16) for x in f[2:6]))
+    return parsed
+
+
+def eeprom_record(body):
+    """The driver's factory EEPROM image (ROM_REGION16_BE "eeprom"), as (name, crc, length)."""
+    recs, unknown = ers.region_records(body, "eeprom")
+    if unknown:
+        sys.exit(f"eeprom region: unparsed {unknown}")
+    if not recs:
+        return None
+    kind, name, dest, length, crc, *rest = recs[0]
+    return name, crc, length
+
+
+def interleave_group(zs, grp, lanes, want, region, start, setname):
+    """The maps that reproduce `want` from the group's files, or exit."""
+    raws = [mra_lib._zip_read(zs, r[1], r[4]) for r in grp]
+    if lanes == 2:
+        cands = ["10", "01"]
+    else:
+        # two files a 32-bit word, each two bytes in either position pair and either order
+        cands = ["1200", "2100", "0012", "0021"]
+    for p in itertools.permutations(cands, len(grp)):
+        if mra_lib.interleave(list(zip(raws, p)), 8 * lanes) == want:
+            return p
+    sys.exit(f"{setname}: no interleave map reproduces {region} 0x{start:x}")
+
+
+def build(setname, out_root, write=True):
+    text = DRIVER.read_text(encoding="utf-8", errors="replace")
+    body = ers.blocks(text)[setname]
+    info = game_info(text, setname)
+    parent = SETS[setname]
+    names, paths = zips_for(setname)
+    if not paths:
+        print(f"{setname}: no zip found ({' / '.join(names)}); skipped")
+        return False
+    zs = [zipfile.ZipFile(p) for p in paths]
+
+    # the image this script expects: each region at its base, zeros elsewhere
+    img = bytearray(layout.IMAGE_END)
+    rec, data = {}, {}
+    for region, base, cap in REGIONS:
+        recs, unknown = ers.region_records(body, region)
+        if unknown:
+            sys.exit(f"{setname}: region {region}: unparsed {unknown}")
+        rec[region] = recs
+        size = min(region_size(body, region), cap)       # ymz: 8 MB declared, 6 MB loaded
+        data[region] = load_region(zs, recs, size)
+        img[base:base + size] = data[region]
+    img = bytes(img)
+
+    L, pos = [], 0
+
+    def pad_to(addr, why):
+        nonlocal pos
+        if addr > pos:
+            L.append(f'        <part repeat="0x{addr - pos:X}">00</part>  <!-- {why} -->')
+            pos = addr
+        assert pos == addr, (why, hex(pos), hex(addr))
+
+    for region, base, cap in REGIONS:
+        recs = sorted(rec[region], key=lambda r: r[2])
+        if not recs:
+            continue
+        pad_to(base, f"{region} at 0x{base:X}")
+        L.append(f"        <!-- {region} -->")
+        kinds = {r[0] for r in recs}
+        if kinds == {"load"}:
+            for kind, name, dest, length, crc, *rest in recs:
+                pad_to(base + dest, f"{region} 0x{dest:x}")
+                L.append(f'        <part name="{escape(name)}" crc="{crc:08x}"/>')
+                pos += length
+        elif kinds in ({"load16_byte"}, {"load32_wswap"}):
+            lanes = 2 if kinds == {"load16_byte"} else 4
+            per = 2        # files a group
+            for i in range(0, len(recs), per):
+                grp = recs[i:i + per]
+                start, length = grp[0][2] - grp[0][2] % lanes, grp[0][3]
+                assert all(r[3] == length for r in grp), grp
+                total = sum(r[3] for r in grp)           # the group's output: every file's bytes
+                pad_to(base + start, f"{region} 0x{start:x}")
+                want = data[region][start:start + total]
+                chosen = interleave_group(zs, grp, lanes, want, region, start, setname)
+                L.append(f'        <interleave output="{8 * lanes}">')
+                for r, mp in zip(grp, chosen):
+                    L.append(f'            <part name="{escape(r[1])}" crc="{r[4]:08x}" map="{mp}"/>')
+                L.append("        </interleave>")
+                pos += total
+        else:
+            sys.exit(f"{setname}: {region}: mixed record kinds {kinds}")
+    pad_to(len(img), "image end")
+
+    mod = int(info["machine"] != "avengrgs") | ROT_CODE[info["rot"]] << 1
+    hs = hiscore_entries(setname)
+    hs_xml = []
+    if hs:
+        lines = [HISCORE_HEADER] + [f"{a >> 24:02X} {a >> 16 & 255:02X} {a >> 8 & 255:02X} {a & 255:02X} "
+                                    f"{n:02X} {st:02X} {en:02X} 00" for a, n, st, en in hs]
+        hs_xml = ["    <!-- hiscore (rtl/hiscore.v), from MAME's plugins/hiscore/hiscore.dat -->",
+                  '    <rom index="3">', "        <part>", *("        " + l for l in lines), "        </part>",
+                  "    </rom>", f'    <nvram index="4" size="{sum(n for _, n, _, _ in hs)}"/>', ""]
+    ee = eeprom_record(body)
+    ee_xml = []
+    if ee:
+        ee_xml = ["    <!-- the factory EEPROM image (ROM_REGION16_BE eeprom): the core loads it into its 93C45 -->",
+                  f'    <rom index="2" zip="{"|".join(names)}" md5="none">',
+                  f'        <part name="{escape(ee[0])}" crc="{ee[1]:08x}"/>', "    </rom>", ""]
+    game = BUTTONS[parent or setname]
+    # six button slots, then Start, Coin, Pause at the J1 line's positions (DecoMLC.sv)
+    btn_names = ",".join(game + ["-"] * (6 - len(game)) + ["Start", "Coin", "Pause"])
+    btn_default = ",".join(["A", "B", "X", "Y", "L"][:len(game)] + ["Start", "Select", "R"])
+    q = {chr(34): "&quot;"}
+    xml = [
+        "<misterromdescription>",
+        "    <!-- Generated by scripts/build_mra.py from MAME deco_mlc.cpp; the layout is",
+        "         scripts/mlc_layout.py (rtl/video/mlc_video_pkg.sv). Do not edit by hand. -->",
+        f'    <about author="Paul Priest" webpage="" source="MAME deco_mlc.cpp"/>',
+        f"    <name>{escape(info['title'])}</name>",
+        f"    <setname>{setname}</setname>",
+        f"    <rbf>{'DecoMLC' if info['machine'] == 'avengrgs' else 'DecoMLC156'}</rbf>",
+        f"    <mameversion>{mame_version()}</mameversion>",
+        f"    <year>{info['year']}</year>",
+        f"    <manufacturer>{escape(info['manufacturer'])}</manufacturer>",
+        f"    <category>{CATEGORY[parent or setname]}</category>",
+        f"    <rotation>{ROTATION[info['rot']]}</rotation>",
+        "    <players>2</players>",
+        "    <joystick>8-way</joystick>",
+        f'    <buttons names="{escape(btn_names, q)}" default="{btn_default}" count="{len(game)}"/>',
+        "",
+        "    <!-- mod byte (DecoMLC.sv): [0] the DE156 configurations (0 = SH-2), [2:1] orientation -->",
+        f'    <rom index="1"><part>{mod:02X}</part></rom>',
+        "",
+        *ee_xml,
+        *hs_xml,
+        "    <!-- address: the HPS puts the image in DDR3 and the core copies it to SDRAM (rtl/memory/rom_loader.sv) -->",
+        f'    <rom index="0" zip="{"|".join(names)}" md5="none" address="0x30000000">',
+        *L,
+        "    </rom>",
+        "",
+        '    <switches default="00,00,00">',
+        "        <!-- the board has no DIP switches (a 93C45 EEPROM): read by the core, not the game -->",
+        '        <dip name="Flip Screen" bits="0" ids="Off,On"/>',
+        "    </switches>",
+        "</misterromdescription>",
+        "",
+    ]
+
+    def safe(t):
+        return re.sub(r'[\\/:*?"<>|]', "-", t)
+    odir = (out_root / "_alternatives" / ("_" + safe(game_info(text, parent)["title"]))) if parent else out_root
+    fname = odir / (safe(info["title"]) + ".mra")
+    odir.mkdir(parents=True, exist_ok=True)
+    tmp = fname.with_suffix(".mra.tmp")
+    tmp.write_text("\n".join(xml), encoding="utf-8", newline="\n")
+    got = mra_lib.build_image(str(tmp), [str(p) for p in paths])
+    for z in zs:
+        z.close()
+    if got != img:
+        diff = next((i for i in range(min(len(got), len(img))) if got[i] != img[i]), min(len(got), len(img)))
+        tmp.unlink()
+        sys.exit(f"{setname}: the .mra image differs from the ROM_START image at 0x{diff:x} "
+                 f"({len(got)} vs {len(img)} bytes)")
+    if write:
+        tmp.replace(fname)
+        print(f"{setname}: {fname.relative_to(REPO)}, image {len(img)} bytes, identical to ROM_START")
+    else:
+        tmp.unlink()
+        print(f"{setname}: image {len(img)} bytes, identical to ROM_START (not written)")
+    return img
+
+
+def mame_version():
+    exe = Path(setting("MAME_DIR") or "C:/Emulation/Emulators/MAME") / (setting("MAME_EXE") or "mame.exe")
+    out = subprocess.run([str(exe), "-version"], capture_output=True, text=True, timeout=30).stdout
+    m = re.match(r"\s*0\.(\d+)", out)
+    if not m:
+        sys.exit(f"cannot read the MAME version from {exe}")
+    return "%04d" % int(m.group(1))
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("sets", nargs="*")
+    ap.add_argument("--check", action="store_true")
+    ap.add_argument("--release", action="store_true", help="write to releases/ instead of releases/_dev/")
+    ap.add_argument("--image", nargs=2, metavar=("SET", "OUT"))
+    a = ap.parse_args()
+    layout.check_pkg()
+    out_root = REPO / "releases" / ("" if a.release else "_dev")
+    if a.image:
+        img = build(a.image[0], out_root, write=False)
+        if img is False:
+            sys.exit(1)
+        Path(a.image[1]).write_bytes(img)
+        print(a.image[1])
+        return
+    for s in a.sets or list(SETS):
+        build(s, out_root, write=not a.check)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,12 @@
+rtl/video/mlc_video_pkg.sv
+rtl/memory/sdram/sdram.sv
+rtl/memory/sdram_phy.sv
+rtl/memory/sdram_arbiter.sv
+rtl/memory/sdram_narrow_bridge.sv
+rtl/memory/sdram_download.sv
+rtl/memory/mlc_dl_xform.sv
+rtl/memory/ddram_phy.sv
+rtl/memory/rom_loader.sv
+rtl/memory/mlc_sdram_top.sv
+sim/common/sdram_chip_model_wide.sv
+sim/download_tb/tb_download.sv

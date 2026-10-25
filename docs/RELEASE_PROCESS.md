@@ -57,7 +57,7 @@ Steps for a release:
    shows this build's date and the right MRA count. Files in `unsupported/` and `_dev/` are not
    published, so keep work in progress there.
 
-**Current state:** <one line: what the latest build passes or fails, with the number>.
+**Current state:** `releases/Arcade-DecoMLC_20261025.rbf` is the `DecoMLC` build of `41fd4c3`, default seed: worst setup slack 0.365 ns (clk_sys 0.532 ns), 25,922 ALMs (62%), 54 DSPs. On the board its avengrgs attract frame equals MAME frames 1468 and 1469; coin, Start and the mode select work (`debug/hw/rel_attract.png`, `rel_coin.png`, `rel_start.png`). Sound not yet judged by ear; avengrgsj not launched.
 
 ## Submitting the core upstream
 

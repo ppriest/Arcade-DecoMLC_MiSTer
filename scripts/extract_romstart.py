@@ -50,12 +50,13 @@ KINDS = {
     "ROM_LOAD16_WORD": "load",         # bytes as they are in the file
     "ROM_LOAD32_BYTE": "load32_byte",
     "ROM_LOAD32_WORD": "load32_word",
+    "ROM_LOAD32_WORD_SWAP": "load32_wswap",   # deco_mlc.cpp maincpu: 16-bit words, byte-reversed, every other word
     # ROM_COPY("src", srcofs, dstofs, len) takes bytes from ANOTHER region
     # rather than from a file, so it carries no CRC.
     "ROM_COPY": "copy",
 }
 # The sets in scope: the default when none are named.
-IN_SCOPE = []
+IN_SCOPE = ["avengrgs", "avengrgsj"]
 # ---------------------------------------------------------------------------
 
 

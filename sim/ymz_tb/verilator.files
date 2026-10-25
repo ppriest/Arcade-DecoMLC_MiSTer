@@ -1,0 +1,7 @@
+-Wno-PROCASSWIRE
++define+SIM
+rtl/video/mlc_video_pkg.sv
+rtl/sound/ymz280b/YMZ280B_pkg.sv
+rtl/sound/ymz280b/YMZ280B.sv
+rtl/sound/mlc_ymz_mem.sv
+sim/ymz_tb/tb_ymz.sv

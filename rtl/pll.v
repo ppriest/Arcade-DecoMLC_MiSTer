@@ -8,7 +8,9 @@
 module pll (
 		input  wire  refclk,   //  refclk.clk
 		input  wire  rst,      //   reset.reset
-		output wire  outclk_0, // outclk0.clk
+		output wire  outclk_0, // outclk0.clk  clk_sys 84 MHz
+		output wire  outclk_1, // outclk1.clk  SDRAM_CLK, shifted
+		output wire  outclk_2, // outclk2.clk  clk_cpu 42 MHz
 		output wire  locked    //  locked.export
 	);
 
@@ -16,6 +18,8 @@ module pll (
 		.refclk   (refclk),   //  refclk.clk
 		.rst      (rst),      //   reset.reset
 		.outclk_0 (outclk_0), // outclk0.clk
+		.outclk_1 (outclk_1), // outclk1.clk
+		.outclk_2 (outclk_2), // outclk2.clk
 		.locked   (locked)    //  locked.export
 	);
 

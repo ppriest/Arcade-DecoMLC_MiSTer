@@ -1,0 +1,62 @@
+MAME 0.289 (-nodrc), deco_mlc.cpp, avengrgs. scripts/write_timing.py over regions.json "sweep"
+plus --extra vram02:02280000:0229ffff,irq04:04200000:0420007f,spr02:02204000:02206fff,
+ymz02:02600000:02600007,ymz:600000:600007,eeprom:500000:500003,irqack:200010:200013,
+irqline:200014:200017,raster:200018:20003b,alpha:200004:200007,sh2regs:fffffe00:ffffffff.
+Attract: write_timing.py avengrgs --skip 600 --frames 1800
+Play:    write_timing.py avengrgs --coin 600 --skip 1500 --frames 1800 --tag _play
+Closing snapshots (debug/wtiming/snap*/avengrgs/0001.png): the attract run ended in the attract
+demo fight (INSERT COIN shown), the play run in a round of play (P1 Captain America vs Minerva).
+The program reaches VRAM and the YMZ280B through chip-select area 1 (0x02xxxxxx) and one IRQ
+word through area 2 (0x0420xxxx); a tap on the driver's base address sees none of those, so the
+aliases are tapped separately. "vram" and "ymz" (base addresses) received no writes in either run.
+MAME lines: visible 8-247, vblank 248-255 and 0-7 (no set_raw: 320x256 is the driver's guess).
+Columns: writes per frame; share in the 2 lines after vblank start, in vblank (8 lines),
+in the 24 lines after vblank start; strip of 8-line buckets from vblank start (line 248).
+
+Findings (raw per-line counts in debug/wtiming/avengrgs.txt, avengrgs_play.txt):
+- Interrupts: the scanline IRQ is acknowledged at lines 8 and 9 every frame (1800 of 1800 each);
+  the line register is written at lines 8 (value 9) and 11 (value 8). Two interrupts a frame,
+  one line apart, at the top of MAME's visible area. Nothing is written in lines 248-7.
+- Clip RAM: 32 writes a frame, all at line 9 (the second handler).
+- VRAM: 2306 longwords a frame at lines 10-11 (the SH-2 DMAC, 9 KB into 0x29dc00-0x29ffff);
+  2 direct writes a frame. Palette: 2048 longwords a frame at line 11 (DMAC, the whole palette).
+  Both land in the first visible lines, after the sprite list snapshot MAME takes at line 248.
+- Sprite list: 440 (attract) / 448 (play) 16-bit writes a frame by the main program, spread over
+  lines 13-150 in attract and lines 16-63 in play; 0% in vblank. The last write of a frame falls
+  on line 13 in 129 of 1800 attract frames, between 32 and 63 in most, up to line 148.
+  A copy at vblank start therefore sees a complete list; the chip must buffer the list.
+- Raster registers (0x200018-3b): 4 writes a frame at lines 8-11; alpha word (0x200004): 1.
+- SH-2 on-chip registers: 10 writes a frame (the two DMAC programmings), lines 9-11.
+- YMZ280B: 1.6 writes a frame in attract, 0.4 in play, anywhere in the frame.
+
+== Attract ==
+avengrgs: 256 lines, vblank start 248 (8 lines of vblank), 1800 frames
+  region      /frame  +0..1 vblank +0..23  from vblank start, 8 lines a column
+  irqram         9.0   0.0%   0.0% 100.0%  |  #                             |
+  clipram       32.0   0.0%   0.0% 100.0%  |  #                             |
+  spriteram    440.1   0.0%   0.0%   2.4%  |  0122110...........            |
+  palette     2048.0   0.0%   0.0% 100.0%  |  #                             |
+  vram02      2306.0   0.0%   0.0% 100.0%  |  #                             |
+  irq04          1.0   0.0%   0.0% 100.0%  |  #                             |
+  ymz02          1.6   0.0%   0.0%   0.1%  |  .200  0 01.0111               |
+  irqack         2.0   0.0%   0.0% 100.0%  |  #                             |
+  irqline        2.0   0.0%   0.0% 100.0%  |  #                             |
+  raster         4.0   0.0%   0.0% 100.0%  |  #                             |
+  alpha          1.0   0.0%   0.0% 100.0%  |  #                             |
+  sh2regs       10.0   0.0%   0.0%  99.9%  |  #.    .                       |
+
+== Play ==
+avengrgs_play (coin at frame 600): 256 lines, vblank start 248 (8 lines of vblank), 1800 frames
+  region      /frame  +0..1 vblank +0..23  from vblank start, 8 lines a column
+  irqram         9.0   0.0%   0.0% 100.0%  |  #                             |
+  clipram       32.0   0.0%   0.0% 100.0%  |  #                             |
+  spriteram    447.6   0.0%   0.0%   0.0%  |   02331.                       |
+  palette     2048.0   0.0%   0.0% 100.0%  |  #                             |
+  vram02      2306.0   0.0%   0.0% 100.0%  |  #                             |
+  irq04          1.0   0.0%   0.0% 100.0%  |  #                             |
+  ymz02          0.4   0.0%   0.0%   5.7%  |  071                           |
+  irqack         2.0   0.0%   0.0% 100.0%  |  #                             |
+  irqline        2.0   0.0%   0.0% 100.0%  |  #                             |
+  raster         4.0   0.0%   0.0% 100.0%  |  #                             |
+  alpha          1.0   0.0%   0.0% 100.0%  |  #                             |
+  sh2regs       10.0   0.0%   0.0% 100.0%  |  #                             |

@@ -98,3 +98,20 @@ releases/*.rbf
 **/.DS_Store
 __pycache__/
 *.pyc
+
+# tools/sh-elf: GNU binutils built for sh-elf (tools/sh-elf/README.md); only the README is source
+tools/sh-elf/src/
+tools/sh-elf/bin/
+tools/sh-elf/lib/
+tools/sh-elf/share/
+tools/sh-elf/sh-elf/
+tools/sh-elf/*.log
+# the SH7604 upstream tests' generated programs and Verilator builds
+rtl/cpu/sh7604/tests/*/*.bin
+rtl/cpu/sh7604/tests/*/*.o
+rtl/cpu/sh7604/tests/*/obj_dir/
+rtl/jteeprom/ver/top/*.vvp
+rtl/jteeprom/ver/top/*.lxt
+rtl/cpu/sh7604/tests/*/sim.log
+rtl/cpu/sh7604/tests/*/jtsh7604_cps3_region.v
+rtl/cpu/sh7604/tests/*/simunit.log

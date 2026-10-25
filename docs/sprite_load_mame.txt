@@ -1,0 +1,53 @@
+MAME 0.289 (-nodrc), deco_mlc.cpp, avengrgs. scripts/sprite_load.py: the sprite list, the IRQ
+and clip blocks and the DMA'd top of VRAM dumped at every vblank start (scripts/mame/sprdump.lua),
+the whole VRAM once at the end, 1800 frames per run, same runs and stimulus as
+write_timing_mame.txt (attract --skip 600; play --coin 600 --skip 1500). Counts per visible
+line (240 a frame), geometry from draw_sprites() (deco_mlc_v.cpp 144-533) including clip
+windows, zoom, raster offsets, 8bpp pairs and auto-flicker.
+
+  cand    entries enabled, inside their Y clip, whose block covers the line: one index-block
+          read each (16 B VRAM or 8 B gfx2 ROM)
+  rows    16-pixel tile rows of those blocks, before any X test
+  vis     tile rows whose stretched span overlaps the clip window and the screen: one 8-byte
+          pixel fetch each, two for a row of an 8bpp pair
+  pix     screen pixels those rows cover after zoom and clipping: line-buffer writes
+  tblrom  tile-table entries read from gfx2 ROM for visible rows (2 B each, consecutive
+          within a block row)
+  tblram  tile-table entries read from VRAM for visible rows (4 B each)
+
+Findings:
+- The worst attract line fetches 269 tile rows and writes 3058 pixels (frame 1436, line 141:
+  the demo fight); the worst play line 243 rows and 2459 pixels. p99.9 is 245 / 2695 and
+  221 / 2045. The load is the backgrounds: 16-tile-wide blocks drawn at half scale (xscale
+  0x80) cover 128 pixels each but still fetch all 16 rows, and two or three of them tile
+  the screen under the fighters, which are 8bpp pairs (two fetches a row).
+- Per line a 320-pixel screen takes up to 269 fetches and 3058 writes: at one pixel a clock
+  that is more than a 42 MHz line (2652 clocks) and 58% of an 84 MHz one (5304).
+- At most 40 blocks cover a line (28 in play); 384 entries are walked once a frame.
+- ROM tile tables: up to 141 entries a line; consecutive tiles of a block read consecutive
+  entries, so an 8-byte granule serves four. VRAM tables: up to 100 a line, in BRAM.
+- Unused entries are disabled (bit 15 clear), not parked off-screen as the SemiCom games do:
+  rows and vis differ only by X clipping of blocks that straddle the screen edge.
+
+== Attract (--skip 600 --frames 1800) ==
+  count      max  p99.9   p99   mean  worst at (frame, line)
+  cand        40     33    27   11.1  (1424, 143)
+  rows       402    352   325  137.9  (1436, 148)
+  vis        269    245   227  114.2  (1436, 141)
+  pix       3058   2695  2376 1146.6  (1436, 141)
+  tblrom     141    127   127   46.4  (1268, 141)
+  tblram     100    100   100   58.8  (130, 129)
+
+== Play (--coin 600 --skip 1500 --frames 1800) ==
+  count      max  p99.9   p99   mean  worst at (frame, line)
+  cand        28     27    26   15.0  (505, 32)
+  rows       298    278   274  195.4  (62, 238)
+  vis        243    221   221  168.7  (658, 140)
+  pix       2459   2045  1981 1333.7  (658, 140)
+  tblrom     123    123   123  103.4  (76, 52)
+  tblram      80     80    80   46.8  (0, 129)
+
+A heavy demo-fight line (--tag _smoke --line 0:160, frames from 2300): 25 blocks, 225 visible
+rows. Six 16-wide background blocks at xscale 0x80 (8 or 16 visible columns each), the two
+fighters as 16x16 8bpp pairs (px 2) with ROM tile tables, and small ROM-indexed blocks for
+the life bars. Clip windows 0 and 1 both span X 0-319.

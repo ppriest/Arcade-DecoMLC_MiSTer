@@ -1,5 +1,66 @@
-set_global_assignment -name VERILOG_FILE rtl/lfsr.v
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/cos.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/mycore.v
 set_global_assignment -name SDC_FILE DecoMLC.sdc
 set_global_assignment -name SYSTEMVERILOG_FILE DecoMLC.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/mlc_top.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/sound/ymz280b/YMZ280B_pkg.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/sound/ymz280b/YMZ280B.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/sound/mlc_ymz_mem.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/mlc_core.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/mlc_ram.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/mame_keys.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/debug/issp_probe.sv
+set_global_assignment -name VERILOG_FILE rtl/hiscore.v
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/crt_adjust.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/crt_vsize.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/crt_chain.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/screen_rotate_two.sv
+set_global_assignment -name QIP_FILE rtl/pll.qip
+
+# the SH7604 (rtl/cpu/sh7604/PROVENANCE.md), packages first
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cpu/sh7604/SH_pkg.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cpu/sh7604/SH7604_pkg.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cpu/sh7604/SH_core_trace.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cpu/sh7604/SH_core.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cpu/sh7604/SH_mem.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cpu/sh7604/SH_regfile.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cpu/sh7604/SH7604_mem.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cpu/sh7604/UBC.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cpu/sh7604/SCI.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cpu/sh7604/FRT.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cpu/sh7604/DMAC.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cpu/sh7604/WDT.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cpu/sh7604/MSBY.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cpu/sh7604/MULT.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cpu/sh7604/DIVU.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cpu/sh7604/INTC.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cpu/sh7604/BSC.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cpu/sh7604/CACHE.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cpu/sh7604/SH7604.sv
+set_global_assignment -name VERILOG_FILE rtl/cpu/jtsh7604_cps3_region.v
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cpu/jtsh7604.sv
+
+# the video block (docs/phase1_video.md)
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/mlc_video_pkg.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/mlc_recip_table.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/mlc_fifo.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/mlc_sprite_list.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/mlc_vram.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/mlc_line_buffer.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/mlc_sprite_scan.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/mlc_sprite_draw.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/mlc_sprite_engine.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/mlc_video_timing.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/mlc_video.sv
+
+# the memory backend (rtl/memory/PROVENANCE.md)
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/sdram/sdram.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/sdram_phy.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/sdram_arbiter.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/sdram_narrow_bridge.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/sdram_download.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/mlc_dl_xform.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/ddram_phy.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/rom_loader.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/mlc_sdram_top.sv
+
+# the 93C45 (rtl/jteeprom)
+set_global_assignment -name VERILOG_FILE rtl/jteeprom/jt9346.v

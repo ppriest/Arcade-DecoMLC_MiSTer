@@ -10,32 +10,32 @@ kept (ROADMAP, "Where a vendored module and MAME disagree").
 
 This core's own approximations are not here; they are in `HACKS.md`.
 
-Source references are to `{{MAME_DRIVER_DIR}}/{{DRIVER_FILE}}` unless named. MAME commit:
-`{{MAME_COMMIT}}`.
+Source references are to `src/mame/dataeast/deco_mlc.cpp` (mlc) and `deco_mlc_v.cpp` (v) unless
+named. MAME commit: `mame0289-1527-gdedb5227403`.
 
 **Core column:** *copies* MAME; *differs* (and why); *n/a* (not in the core's scope);
 *not checked*.
 
-{{MAME_MACHINE_FLAGS_ONE_LINE}}
-<!-- e.g. "Every set is MACHINE_IMPERFECT_GRAPHICS." -->
+Every set is `MACHINE_IMPERFECT_GRAPHICS`; `stadhr96j2` and the Skull Fang sets are
+`MACHINE_NOT_WORKING`.
 
-## {{SUBSYSTEM}}
-
-<!-- One section per subsystem: CPU and timing, Video, Sound, Protection, Inputs. -->
+## Video
 
 | Kludge | MAME | Core | Would settle it |
 |---|---|---|---|
-| {{SHORT_NAME_OR_MAME_QUOTE}} | `{{file}}:{{line}}`: {{what MAME does, quoting its own comment where it admits the guess}} | {{copies / differs: how / n/a}}, `{{core file or model function}}` | {{the measurement or capture that would answer it, or "—"}} |
-
-<!-- Examples of the shape, from sibling cores:
-| "Tokkae shadow masking (INACCURATE)" | `konamigx_v.cpp`, primodes 4 and 5: a shadow's priority is raised to the highest priority of a layer that SHD_ON excludes | copies, `mixer_shadow_setup` | The K055555 SHD_ON behaviour on hardware (MAME calls it a HACK) |
-| Unhandled priority mask 0xc0: MAME draws `machine().rand()` pixels and pops a message | `ms32_v.cpp:522-526` | differs: not reproduced | — |
-| Watchdog not implemented | `jaleco_ms32_sysctrl.cpp:104` | copies (ignored) | — |
-| Equal z-code tie-break | No silicon source found; MAME draws back to front and skips when the stored z is lower | copies: the line buffer writes when (z, priority) is strictly lower, in RAM order | A PCB capture of two overlapping equal-z sprites |
--->
+| Clip window select | v 243-251: "this mapping seems odd, but is correct for Skull Fang and StadHr96": bits 9:8 swapped, bit 11 as the third bit, "where is the high bit?" | copies, `mlc_sprite_scan.sv` (clipper) | A set that uses more than four windows |
+| Raster sets | v 358-397: "I think we need some hardware tests"; bit 10 enables, bits 8:7 pick IRQ words 6, 9 or 12 as y offset, x offset, x scale; "avengrgs doesn't even enable this" | copies, `mlc_sprite_scan.sv`, `mlc_sprite_draw.sv` (xs = xscale * extra) | stadhr96's rasters on hardware |
+| Alpha word | v 47, 100-101: IRQ word 1 bits 7:6 "0xc0: Shadow, 0: Alpha or Pre-shadowed, other bits unknown"; a shadow-coloured sprite only marks pixels when they are set | copies: `alpha_on`, `mlc_video.sv`; shadow by colour bits 8:7 (v 263), only bit 7 reachable at 4bpp | — |
+| 8bpp pairs | v 163-166, 267-271, 337-351: the entry after one with 0x1000 supplies the second block and the first supplies the colour; "TODO: 8bpp and shadow can use simultaneously?" | copies, `mlc_sprite_list.sv` (pairing), `mlc_sprite_draw.sv` | — |
+| Pen index past the palette | v 95, 132: `16 * color + c` with an 8bpp `c` can exceed 2047; MAME reads past its 2048 pens | differs: the index keeps 11 bits (`lb_pen`); `render_model.py` raises on it so a capture that does it is noticed | A capture that does it |
+| Tile code wrap | v 96: `code % elements()`, 196,608 tiles | copies by one subtraction (`code_w`); `render_model.py` counts them | — |
+| Zoom | v 56-62, 399-450: 16.16 steps, `dx = (16 << 16) / width`, the source row from `(bby << 16) / (yscale << 8)` | copies exactly: a reciprocal table and an 8-step divider (`docs/phase1_video.md`) | A PCB capture of a zoomed sprite |
+| List double buffer | v 540-545: "Spriteram is definitely double buffered"; copied at vblank start | copies, `mlc_sprite_list.sv` | — |
+| Auto-flicker parity | v 170, 278, 310: `frame_number() & 1` | copies with the core's own frame counter; the phase differs from MAME's | — |
+| Pen 0 fill | v 553: "Pen 0 fill colour confirmed from Skull Fang level 2" | copies, `mlc_video.sv` | — |
 
 ## Vendored modules that disagree with MAME
 
 | Module | MAME says | The module does | Kept because | Would settle it |
 |---|---|---|---|---|
-| `{{module}}` | {{MAME behaviour, file:line}} | {{module behaviour, file:line}} | {{silicon-derived / upstream bench / measured}} | {{what would show which describes the chip}} |
+| YMZ280B (`rtl/sound/ymz280b`) | linear interpolation between a voice's samples with 9 bits of phase (`ymz280b.cpp:450`) | 6 bits (`PHASE_FRAC[8:3]`) | a few units a sample; the module is derived from MAME, not silicon, so this is precision, not evidence | a recording of the chip |

@@ -41,6 +41,13 @@ from mame_capture import regions  # noqa: E402
 _T = regions().get("trace", {})
 ROM = [(int(lo, 16), int(hi, 16)) for lo, hi in _T.get("rom", [])]
 RAM = [(int(lo, 16), int(hi, 16)) for lo, hi in _T.get("ram", [])]
+# "internal": CPU-internal registers MAME's tap sees (an SH-2's on-chip map) and the external
+# bus never does; dropped from both traces. "vectors": a read there marks an interrupt taken.
+INTERNAL = [(int(lo, 16), int(hi, 16)) for lo, hi in _T.get("internal", [])]
+VEC = tuple(int(v, 16) for v in _T.get("vectors", ["0", "0"]))
+# "irq_pushes": writes the CPU's exception entry makes before it reads the vector (an SH-2
+# pushes SR and PC: 2), so the bench raises the interrupt before them, not after.
+IRQ_PUSHES = int(_T.get("irq_pushes", 0))
 
 
 def load(path):
@@ -48,9 +55,15 @@ def load(path):
     for ln in open(path, encoding="utf8"):
         if ln.startswith("#") or not ln.strip():
             continue
-        seq, rw, a, m, d = ln.split()
+        f = ln.split()
+        if len(f) != 5:
+            continue   # a truncated or padded line (a run cut short); the rest is still valid
+        seq, rw, a, m, d = f
         m = int(m, 16)
-        rows.append((int(seq), rw, int(a, 16), m, int(d, 16) & m))
+        a = int(a, 16)
+        if any(lo <= a <= hi for lo, hi in INTERNAL):
+            continue
+        rows.append((int(seq), rw, a, m, int(d, 16) & m))
     return rows
 
 
@@ -69,7 +82,9 @@ def merge_halves(rows):
         if out:
             s0, rw0, a0, m0, d0 = out[-1]
             _, rw1, a1, m1, d1 = r
-            if rw0 == rw1 and a0 == a1 and not (m0 & m1):
+            # reads only: a CPU writes a halfword pair as two accesses on both sides, and
+            # the RTL's pair sits adjacent when the fetches between them hit its cache
+            if rw0 == rw1 == "r" and a0 == a1 and not (m0 & m1):
                 out[-1] = (s0, rw0, a0, m0 | m1, d0 | d1)
                 continue
         out.append(r)
@@ -85,15 +100,24 @@ def is_ram(a):
 
 
 def cmd_replay(game):
+    """MAME's I/O reads, in order, and the write count at which each interrupt was taken
+    (a read of the vector table), so the bench raises its interrupt where MAME took it
+    (LESSONS, "[Silkroad] Raise a boot bench's interrupt where MAME took it")."""
     mame = REPO / "debug" / f"{game}-boot" / f"{game}_boot.trace"
     out = REPO / "debug" / f"{game}-boot" / f"{game}_replay.txt"
-    n = 0
-    with open(out, "w", encoding="utf8") as f:
+    irq = REPO / "debug" / f"{game}-boot" / f"{game}_irq.txt"
+    n = ni = writes = 0
+    with open(out, "w", encoding="utf8") as f, open(irq, "w", encoding="utf8") as g:
         for seq, rw, a, m, d in load(mame):
-            if rw == "r" and not is_rom(a) and not is_ram(a):
+            if rw == "w":
+                writes += 1
+            elif VEC[1] > VEC[0] and VEC[0] <= a <= VEC[1]:
+                g.write(f"{writes - IRQ_PUSHES}\n")
+                ni += 1
+            elif not is_rom(a) and not is_ram(a):
                 f.write(f"{a:06X} {m:08X} {d:08X}\n")
                 n += 1
-    print(f"{n} I/O reads -> {out}")
+    print(f"{n} I/O reads -> {out}; {ni} interrupts -> {irq}")
     return 0
 
 
@@ -142,9 +166,10 @@ def cmd_compare(game):
                 break
     window = mame[:mame_cut]
 
-    # --- non-ROM reads, in order
-    mio = [(a, m, d) for _, rw, a, m, d in window if rw == "r" and not is_rom(a)]
-    rio = [(a, m, d) for _, rw, a, m, d in rtl if rw == "r" and not is_rom(a)]
+    # --- I/O reads, in order (not RAM: a CPU with a data cache reads RAM when it
+    # misses, MAME's reads it every time; RAM reads are covered below, like ROM)
+    mio = [(a, m, d) for _, rw, a, m, d in window if rw == "r" and not is_rom(a) and not is_ram(a)]
+    rio = [(a, m, d) for _, rw, a, m, d in rtl if rw == "r" and not is_rom(a) and not is_ram(a)]
     k = min(len(mio), len(rio))
     bad = next((i for i in range(k) if mio[i] != rio[i]), None)
     if bad is None and len(mio) == len(rio):
@@ -155,13 +180,13 @@ def cmd_compare(game):
               f"{bad + 1 if bad is not None else k + 1}")
 
     # --- ROM fetches, superset
-    mrom = {(a, m) for _, rw, a, m, d in window if rw == "r" and is_rom(a)}
+    mrom = {(a, m) for _, rw, a, m, d in window if rw == "r" and (is_rom(a) or is_ram(a))}
     # Coverage is per BYTE LANE, not per (address, mask) pair: the RTL may have
     # read a whole dword where MAME read one half, or two halves where MAME
     # read the dword, and either way the lanes MAME asked for were read.
     rlanes = {}
     for _, rw, a, m, d in rtl:
-        if rw == "r" and is_rom(a):
+        if rw == "r" and (is_rom(a) or is_ram(a)):
             rlanes[a] = rlanes.get(a, 0) | m
     def covered(a, m):
         return (m & ~rlanes.get(a, 0)) == 0
@@ -169,10 +194,10 @@ def cmd_compare(game):
     if missing:
         rc = 1
         missing.sort()
-        print(f"ROM       {len(mrom) - len(missing)} of {len(mrom)} MAME ROM reads were also "
+        print(f"ROM/RAM   {len(mrom) - len(missing)} of {len(mrom)} MAME ROM and RAM reads were also "
               f"made by the RTL; first missing: {missing[0][0]:06X} {missing[0][1]:08X}")
     else:
-        print(f"ROM       every one of MAME's {len(mrom)} distinct ROM reads in the window "
+        print(f"ROM/RAM   every one of MAME's {len(mrom)} distinct ROM and RAM reads in the window "
               f"was also made by the RTL")
 
     print(f"\nwindow: RTL {len(rtl)} accesses, MAME {mame_cut} accesses to the same "
@@ -180,12 +205,34 @@ def cmd_compare(game):
     return rc
 
 
+def cmd_dups(game):
+    """Writes the RTL made twice in a row (same address, lanes and data), and what came
+    before each pair: a census for a CPU that re-issues a bus beat."""
+    rows = load(REPO / "debug" / f"{game}-boot" / f"{game}_rtl.trace")
+    writes = sum(1 for r in rows if r[1] == "w")
+    dups = 0
+    before = {}
+    for i in range(1, len(rows)):
+        _, rw, a, m, d = rows[i]
+        _, rw0, a0, m0, d0 = rows[i - 1]
+        if rw == "w" and rw0 == "w" and (a, m, d) == (a0, m0, d0):
+            dups += 1
+            prev = rows[i - 2][1] if i >= 2 else "-"
+            k = "ram" if is_ram(a) else "rom" if is_rom(a) else "io"
+            key = f"{k} write after a {'write' if prev == 'w' else 'read'}"
+            before[key] = before.get(key, 0) + 1
+    print(f"{writes} writes, {dups} of them an immediate repeat of the previous write")
+    for k, n in sorted(before.items()):
+        print(f"  {n:7d}  {k}")
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["replay", "compare"])
+    ap.add_argument("cmd", choices=["replay", "compare", "dups"])
     ap.add_argument("game")
     a = ap.parse_args()
-    return cmd_replay(a.game) if a.cmd == "replay" else cmd_compare(a.game)
+    return {"replay": cmd_replay, "compare": cmd_compare, "dups": cmd_dups}[a.cmd](a.game)
 
 
 if __name__ == "__main__":

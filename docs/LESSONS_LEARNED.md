@@ -611,6 +611,45 @@ Waiting a couple of scanlines to buffer, or servicing the interrupt late, shows 
 cloud scrolling independently of the rest. NeoGeo_MiSTer and jotego's jtcps are the reference
 implementations for the per-line interrupt plus attribute buffering pattern.
 
+### [DecoMLC] Check the set's zip is on the MiSTer before suspecting the memory path
+
+The first builds showed black on the board while simulation booted. Probes showed the SH-2 looping
+on exception vector 4 and every program fetch returning `0xFF7FFF7F`, which read as an SDRAM
+capture fault; the SDRAM clock phase was moved and a byte-streaming `.mra` tried, two rebuilds.
+`avengrgs.zip` was not in `/media/fat/games/mame`: MiSTer had loaded no ROM and the core ran on
+uninitialised SDRAM. With the zip copied (checksum equal to the local one) the game ran at once.
+A missing ROM gives no error the scripts see. Before the first launch of a new set, list the zip
+on the device and compare its checksum.
+
+### [DecoMLC] Build every large RAM from one inference template; benches cannot see a RAM made of registers
+
+The first full build of the core ran out of logic at 3953% of the device with no M10K used:
+VRAM (four 32-bit lanes written with a byte-enable loop inside a generate), main RAM (four
+part-select writes into a 32-bit word) and the sprite-list snapshot lanes became 2.1 million
+registers, after 80 minutes of synthesis. Every Verilator and ModelSim bench had passed: a RAM
+built of registers behaves the same. The Analysis & Synthesis report's "Resource Utilization by
+Entity" names the offenders in a second. `rtl/mlc_ram.sv` (port A read/write, port B read, a
+registered read each) is now the only way a RAM is written in this core's RTL; wide RAMs with
+byte enables are several of them side by side.
+
+### [DecoMLC] Latch the line a per-line engine renders at line_start; a "next line" wire moves a clock later
+
+The timing block's `render_line` was `vpos + 1` and the scanner compared it live; `line_start`
+fires on the clock the counters wrap, so one clock later the wire named the line after. Every
+block landed one line high: the y test passed one line early, so every tile row came from the
+wrong source line and the whole frame was wrong in a way that looked like a tile decode fault.
+The trace of one scanline against the model showed `bby` off by one with every input equal.
+Everything a line's engine derives from the line number comes from a register loaded at
+`line_start`.
+
+### [DecoMLC] A stage that hands a record to the next stage must hand a copy, not a reference
+
+The drawer's setup stage wrote the job registers the row stage read live, and started the next
+hit's setup as soon as the row stage had taken the job; the row loop then continued with the next
+hit's sprite base and width. Rows of one block drew the next block's tiles, which a one-line
+trace showed as a tile count that did not restart at zero. Each stage owns its copy of the record
+it works on; the handoff register is for the handoff only.
+
 ### [Fuuki] A one-line vertical offset between layers is the interrupt's line numbering, not its timing
 
 Sprites a scanline low (and credit text clipped at the bottom) was a 0- versus 1-based raster row,
@@ -1057,6 +1096,32 @@ ack address that is also an input port must acknowledge on writes only.
 PC low at A7+4, SR at A7, no format word; and its `MOVEC` is an illegal instruction, so the
 stub's `MOVEC` words have to be NOPs. Logged by `sim/ss_m68k_tb +LOG=1` before writing the
 mode; the first attempt with the 68020 sequence took an illegal-instruction exception in the stub.
+
+### [DecoMLC] Count a CPU's bus beats; a memory model that is written twice cannot tell
+
+The vendored SH7604 passed its upstream copy-loop test and booted the game, and still put every
+store that followed another store onto the bus twice. The test's SRAM model is written on every
+clock the request is up, so a doubled write leaves the memory exactly as a single one does, and a
+content check cannot see it. The boot trace against MAME saw it as one extra write at access
+983,261, 187,678 writes in. A text waveform of the seam (`sim/boot_tb +WATCH`) showed the second
+beat as a complete bus cycle the BSC started two clocks after releasing the first, and the
+cache's request logic as the cause: a term added downstream held the core until the BSC took the
+store, and at that clock the core's unchanged request looked like a new one to the pending path.
+Restoring the upstream expression removed the doubling; a second downstream change, clearing the
+pending flags on completion, then dropped a store queued behind another and was restored too.
+Tap the seam with a beat counter, or compare bus traces, before trusting a CPU that only passes
+memory-content tests; and when a vendored module has a downstream fork, diff the fork's bus
+logic against the original before anything else.
+
+### [DecoMLC] Raise a replayed interrupt before the exception's own writes
+
+MAME's trace marks an interrupt by its vector read, but the SH-2 pushes SR and PC before it
+reads the vector, so a bench that raises the interrupt at the vector read's write count enters
+the handler two writes late and the comparison stops at the first push. `regions.json`
+`irq_pushes` (2 for an SH-2) moves the target back. The pushed return address can still differ
+by a few instructions, the two CPUs taking the interrupt at different boundaries in a run of
+instructions that write nothing; everything after follows from that and needs the main program
+and the handler compared as separate streams.
 
 ## Quartus synthesis gotchas (not visible in ModelSim)
 

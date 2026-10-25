@@ -79,21 +79,33 @@ fi
 #                           it, ModelSim's vlog does not (vlog-2730), and it
 #                           must stay UNTOUCHED -- so it is left out of
 #                           simulation rather than patched. Still synthesized.
+#   hiscore.v               vendored JimmyStones/Hiscores_MiSTer: uses ram_addr before
+#                           declaring it (vlog-2730); left untouched, still synthesized.
 #   *_upstream_reference.*  pristine upstream copies kept beside the vendored
 #                           modules purely so local changes can be diffed.
 #   cos.sv, lfsr.v, mycore.v  Template_MiSTer's demo core. Excluded now, and to
 #                           be DELETED once <Name>.sv becomes the real top
 #                           level; the exclusions stay so a stray copy cannot
 #                           creep back in.
+# Packages first: ModelSim resolves an import at compile time, so a package must be
+# compiled before the modules that import it, whatever the alphabet says.
+PKGS=$(find rtl -name '*_pkg.sv' -not -path 'rtl/cpu/sh7604/*' -not -path 'rtl/sound/ymz280b/*' | sort)
 RTL=$(find rtl -name '*.sv' \
+        -not -name '*_pkg.sv' \
         -not -path 'rtl/synth_check/*' \
+        -not -path 'rtl/cpu/sh7604/*' \
+        -not -name 'jtsh7604.sv' \
+        -not -path 'rtl/sound/ymz280b/*' \
+        -not -path 'rtl/jteeprom/ver/*' \
         -not -name 'screen_rotate*.sv' \
         -not -name '*_upstream_reference.sv' \
         -not -name 'cos.sv' | sort)
 VLOG=$(find rtl -name '*.v' \
         -not -path 'rtl/synth_check/*' \
+        -not -path 'rtl/cpu/sh7604/tests/*' \
+        -not -path 'rtl/jteeprom/ver/*' \
         -not -name 'pll*.v' \
-        -not -name 'lfsr.v' -not -name 'mycore.v' \
+        -not -name 'lfsr.v' -not -name 'mycore.v' -not -name 'hiscore.v' \
         -not -name '*_upstream_reference.v' | sort)
 
 echo "--- vlog: RTL + testbench ---"
@@ -117,7 +129,7 @@ echo "--- vlog: RTL + testbench ---"
 # shellcheck disable=SC2086
 "$MS/vlog.exe" -sv -work work -suppress 7061 \
     +define+SIMULATION ${INITREG-+initreg=r+0 +initmem=r+0} ${VDEFS:-} \
-    $VLOG $RTL $(ls sim/common/*.sv 2>/dev/null) "sim/$TB"/*.sv \
+    $PKGS $VLOG $RTL $(ls sim/common/*.sv 2>/dev/null) "sim/$TB"/*.sv \
   > work/vlog.log 2>&1 || { grep -v '^-- Compiling' work/vlog.log; exit 1; }
 grep -E '^\*\* (Error|Warning)' work/vlog.log || true
 

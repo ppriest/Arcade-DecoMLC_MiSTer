@@ -97,10 +97,12 @@ def mame_cmd(exe, game, lua, mame_dir, extra=()):
     # -nodebug/-nowindow explicit: a mame.ini with `debug 1` halts in the debugger
     # while the autoboot script still loads and prints, so it looks alive.
     # -autoboot_script points at run.lua, not at `lua`: see lua_runner_env().
+    # regions.json "mame_args" adds per-core options: -nodrc where the main CPU has a
+    # recompiler, because its fastram paths bypass the Lua write taps.
     return [str(exe), game, "-nodebug", "-nowindow", "-video", "none", "-sound", "none",
             "-skip_gameinfo", "-nothrottle", "-autoboot_delay", "0",
             "-autoboot_script", str(LUA_DIR / "run.lua"),
-            "-rompath", rompath(mame_dir), *extra]
+            "-rompath", rompath(mame_dir), *regions().get("mame_args", []), *extra]
 
 
 def rompath(mame_dir):
@@ -187,6 +189,8 @@ def main():
                     help="set a DIP switch by its MAME field name before the game boots, "
                          "e.g. --dip 'Flip Screen=On'. Repeatable. An unknown name or "
                          "setting is an error, never a silent default.")
+    ap.add_argument("--coin", type=int, default=0,
+                    help="insert a coin at this frame, press Start and play (as write_timing.py)")
     ap.add_argument("--keep-going", action="store_true",
                     help="do not delete a previous capture of the same name")
     a = ap.parse_args()
@@ -205,7 +209,9 @@ def main():
     cmd = mame_cmd(exe, a.set, "capture.lua", mame_dir, extra)
     env = dict(os.environ, **lua_env(r), **lua_runner_env("capture.lua"),
                CORE_OUT=out.as_posix(), CORE_FRAME=str(a.frame),
-               CORE_READ=spec(r.get("read", {})), CORE_WTAP=spec(r.get("wtap", {})))
+               CORE_READ=spec(r.get("read", {})), CORE_WTAP=spec(r.get("wtap", {})),
+               CORE_PREV=spec(r.get("prev", {})),
+               CORE_COIN=str(a.coin), **{"CORE_IN_" + k.upper(): v for k, v in r.get("inputs", {}).items()})
     print(f"{a.set} frame {a.frame} -> {out}")
     p = subprocess.run(cmd, cwd=mame_dir, env=env, capture_output=True, text=True, **NO_WINDOW)
     blob = p.stdout + p.stderr

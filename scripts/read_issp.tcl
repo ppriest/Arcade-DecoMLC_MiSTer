@@ -21,6 +21,36 @@ set fields_F {
     {frames           0  15 dec}
     {pll_locked     127 127 bit}
 }
+# DecoMLC.sv u_issp_rom: program fetches as the CPU receives them (source = fetch N)
+set fields_R {
+    {fetch0_data      0  31 hex}
+    {fetch1_data     32  63 hex}
+    {fetchN_data     64  95 hex}
+    {fetchN_addr     96 115 hex}
+    {fetches_seen   116 123 dec}
+}
+# DecoMLC.sv u_issp_core: mlc_core's dbg bus, then the framework's lines
+set fields_C {
+    {bus_accesses     0  31 dec}
+    {last_address    32  55 hex}
+    {interrupts      56  71 dec}
+    {rom_fetches     72  87 dec}
+    {frames          88 103 dec}
+    {bus_state      104 106 dec}
+    {irq_pending    108 108 bit}
+    {served         109 109 bit}
+    {cache_cs       110 110 bit}
+    {core_reset     111 111 bit}
+    {mod_byte       112 119 hex}
+    {pause          120 120 bit}
+    {video_reset    121 121 bit}
+    {reset          122 122 bit}
+    {ioctl_download 123 123 bit}
+    {dl_seen_wr     124 124 bit}
+    {ldr_done       125 125 bit}
+    {ldr_busy       126 126 bit}
+    {pll_locked     127 127 bit}
+}
 # ---------------------------------------------------------------------------
 
 proc bits_to_int {s lo hi} {
@@ -86,6 +116,8 @@ if {$want ne ""} {
 # than guesses.
 switch -- $inst_id {
     F       { set fields $fields_F }
+    C       { set fields $fields_C }
+    R       { set fields $fields_R }
     default {
         puts "instance id '$inst_id' has no field table -- add one before reading it"
         exit 1
