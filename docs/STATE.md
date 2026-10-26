@@ -19,6 +19,8 @@ every frame.
 | IRQ block, clip RAM as read back | `mlc_core.irq_ram`, `clip_ram` | 2 x (32 x 32) | 256 | yes |
 | EEPROM | `mlc_core.u_eeprom` (jt9346) | 16 x 64 | 128 | yes: the dump port, and MiSTer's NVRAM save |
 | YMZ280B registers and voice state | `mlc_core.u_ymz`: its `YMZ_REG_RAM` and `YMZ_CH_RAM` instances, `MEMADDR`, `ENC`, `FLG`, the enables | 8 voices | ~200 | yes, tier 2: no state port yet |
+| DE156 (DecoMLC156) | `rtl/cpu/amber`: the register bank, the pipeline, coprocessor 0's sixteen registers | 26 x 32 + 16 x 32 | ~170 | yes, tier 2: no state port yet |
+| DECO 146 (stadhr96) | `mlc_core.u_146`: two banks of 128 x 16 RAM, xor, nand, the latch, the bank bit | 256 x 16 + 70 bits | 521 | yes: the RAM through a second port to add; the registers |
 | SH7604 | `rtl/cpu/sh7604` | registers, the 4 KB cache, the DMAC | yes, tier 2: no state port yet (`PROVENANCE.md`) |
 
 ## Registers and FSMs
@@ -26,6 +28,7 @@ every frame.
 | What | RTL | Bits | Save? | MAME `save_item` equivalent |
 |---|---|---|---|---|
 | clip windows | `mlc_video.clip_*` | 4 x 80 | yes | `m_clip_ram` |
+| the line's register copy | `mlc_video.clip_*_l`, `ras_*_l`, `alpha_on_l` | 420 | no: latched again at the next line start | - |
 | raster sets, alpha | `mlc_video.ras_*`, `alpha_on` | 96 + 1 | yes | `m_irq_ram` words 1, 6-14 |
 | frame parity | `mlc_video.parity` (input) | 1 | yes | `screen.frame_number() & 1` |
 | line register, armed, interrupt pending | `mlc_core.line_reg`, `line_armed`, `irq_pending` | 32 + 2 | yes | `m_irq_ram[5]`, the raster timer, the IRQ line |

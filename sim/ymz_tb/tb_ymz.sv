@@ -62,7 +62,7 @@ module tb_ymz;
 	int          nstall = 0, nmiss = 0;
 
 	mlc_ymz_mem u_mem (
-		.clk, .reset(!rst_n), .inval(1'b0),
+		.clk, .reset(!rst_n), .inval(1'b0), .plain(1'b0),
 		.ce_in(ce_raw), .ce_out(), .stall(m_stall),
 		.ma, .moe_n, .mdi(m_data),
 		.mem_req, .mem_addr, .mem_valid, .mem_rdata

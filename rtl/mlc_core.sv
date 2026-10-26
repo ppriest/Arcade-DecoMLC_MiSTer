@@ -6,16 +6,23 @@
 // program ROM, the sprite units and the sample units come through mlc_sdram_top's ports
 // (rtl/mlc_top.sv). docs/HARDWARE_NOTES.md has every
 // address with its driver line.
+// DE156 = 1 builds the DE156 sets' board instead (DecoMLC156): the Amber ARM in mlc_de156 on the
+// same glue, the program descrambled at fetch (rtl/cpu/de156), the interrupt taken at the ARM's
+// IRQ vector; the maps are the same addresses (mlc 327-356).
 module mlc_core
 	import mlc_video_pkg::*;
+#(
+	parameter bit DE156 = 1'b0
+)
 (
 	input  logic         clk,             // 84 MHz: everything but the CPU
-	input  logic         clk_cpu,         // 42 MHz, the same PLL: the SH7604 at CE 1 in 2
+	input  logic         clk_cpu,         // 42 MHz, the same PLL: the SH7604 at CE 1 in 2, the DE156 at 1 in 3
 	input  logic         reset,           // the game: CPU, RAMs' owners, registers
 	input  logic         video_reset,     // the raster alone, so sync runs through a load
 	input  logic         pause,           // holds the CPU (its DMAC with it)
 
-	// program ROM (mlc_sdram_top: a pulse, the address held until valid, big-endian words)
+	// program ROM (mlc_sdram_top: a pulse, the address held until valid; big-endian words for the
+	// SH-2, the region's little-endian words for the DE156)
 	output logic         cpu_rom_req,
 	output logic [19:0]  cpu_rom_addr,
 	input  logic         cpu_rom_valid,
@@ -41,6 +48,9 @@ module mlc_core
 	input  logic [5:0]   ee_addr,
 	input  logic [15:0]  ee_din,
 
+	input  logic         has146,          // the DECO 146 at 0x70f000 (stadhr96, mlc 364-369; the .mra mod byte)
+	input  logic [1:0]   gfx_layout,      // the gfx_layout (mlc_video_pkg L_*; the .mra mod byte)
+	input  logic         gfx_frac8,       // a third of gfx1 is 8 MB (stadhr96)
 	input  logic         parity_in,       // frame parity for auto-flicker, from the top
 	input  logic         flip,            // flip screen (OSD or the .mra's fake DIP)
 
@@ -69,11 +79,7 @@ module mlc_core
 	output logic [111:0] dbg
 );
 
-	// ------------------------------------------------------------------ the CPU, 42 MHz
-	logic        cec = 1'b0;
-	always_ff @(posedge clk_cpu) cec <= ~cec;
-	wire ce_r = (cec == 1'b0) && !pause;
-	wire ce_f = (cec == 1'b1) && !pause;
+	// ------------------------------------------------------------------ the CPU: the SH-2 on 42 MHz, or the DE156
 
 	logic [26:0] A;
 	logic [31:0] cpu_dout, cpu_din;
@@ -84,23 +90,37 @@ module mlc_core
 	logic [31:0] cache_din;
 	logic [3:0]  cache_dsn;
 	logic        irq_pending;
-	wire  [3:0]  irl_n = irq_pending ? 4'b1110 : 4'b1111;   // IRL level 1 (mlc 1048)
 
-	jtsh7604 #(
-		.UBC_DISABLE(1'b1), .SCI_DISABLE(1'b1), .WDT_DISABLE(1'b1),
-		.BUS_AREA_TIMIMG(4'h0), .BUS_SIZE_BYTE_DISABLE(1'b0), .BUS_SIZE_WORD_DISABLE(1'b0),
-		.MD_CFG(6'b010100)
-	) u_cpu (
-		.rst(reset), .clk(clk_cpu), .ce_r(ce_r), .ce_f(ce_f),
-		.nmi_n(1'b1), .irl_n(irl_n), .cpu_din(cpu_din),
-		.cps3_key1(32'd0), .cps3_key2(32'd0), .cps3_crypt_mode(3'b010), .cps3_region(3'd0),
-		.cps3_region_redearth(1'b0), .cache_ok(cache_ok),
-		.A(A), .cpu_dout(cpu_dout), .BS_N(BS_N), .CS0_N(CS0_N), .CS1_N(CS1_N), .CS2_N(CS2_N),
-		.CS3_N(CS3_N), .RD_WR_N(RD_WR_N), .CE_N(CE_N), .OE_N(OE_N), .WE_N(WE_N), .RD_N(RD_N),
-		.IVECF_N(IVECF_N), .RFS(RFS), .BGR_N(BGR_N), .WAIT_N(WAIT_N),
-		.cache_cs(cache_cs), .cache_we(cache_we), .cache_rd(cache_rd), .cache_wr(cache_wr),
-		.cache_addr(cache_addr), .cache_din(cache_din), .cache_dsn(cache_dsn)
-	);
+	generate if (!DE156) begin : sh2
+		logic        cec = 1'b0;
+		always_ff @(posedge clk_cpu) cec <= ~cec;
+		wire ce_r = (cec == 1'b0) && !pause;
+		wire ce_f = (cec == 1'b1) && !pause;
+		wire  [3:0]  irl_n = irq_pending ? 4'b1110 : 4'b1111;   // IRL level 1 (mlc 1048)
+
+		jtsh7604 #(
+			.UBC_DISABLE(1'b1), .SCI_DISABLE(1'b1), .WDT_DISABLE(1'b1),
+			.BUS_AREA_TIMIMG(4'h0), .BUS_SIZE_BYTE_DISABLE(1'b0), .BUS_SIZE_WORD_DISABLE(1'b0),
+			.MD_CFG(6'b010100)
+		) u_cpu (
+			.rst(reset), .clk(clk_cpu), .ce_r(ce_r), .ce_f(ce_f),
+			.nmi_n(1'b1), .irl_n(irl_n), .cpu_din(cpu_din),
+			.cps3_key1(32'd0), .cps3_key2(32'd0), .cps3_crypt_mode(3'b010), .cps3_region(3'd0),
+			.cps3_region_redearth(1'b0), .cache_ok(cache_ok),
+			.A(A), .cpu_dout(cpu_dout), .BS_N(BS_N), .CS0_N(CS0_N), .CS1_N(CS1_N), .CS2_N(CS2_N),
+			.CS3_N(CS3_N), .RD_WR_N(RD_WR_N), .CE_N(CE_N), .OE_N(OE_N), .WE_N(WE_N), .RD_N(RD_N),
+			.IVECF_N(IVECF_N), .RFS(RFS), .BGR_N(BGR_N), .WAIT_N(WAIT_N),
+			.cache_cs(cache_cs), .cache_we(cache_we), .cache_rd(cache_rd), .cache_wr(cache_wr),
+			.cache_addr(cache_addr), .cache_din(cache_din), .cache_dsn(cache_dsn)
+		);
+	end else begin : de156
+		assign {A, BS_N, CS0_N, CS1_N, CS2_N, CS3_N, RD_WR_N, CE_N, OE_N, RD_N, IVECF_N, RFS, BGR_N, WAIT_N, WE_N, cpu_dout, cache_we} = '1;
+		mlc_de156 u_cpu (
+			.clk_cpu, .reset, .pause, .irq(irq_pending),
+			.cache_cs, .cache_rd, .cache_wr, .cache_addr, .cache_din, .cache_dsn, .cache_ok,
+			.cpu_din
+		);
+	end endgenerate
 
 	// ------------------------------------------------------------------ the bus, 84 MHz
 	// The wrapper's request (cache_cs with cache_rd/cache_wr, address, data and lane strobes)
@@ -120,8 +140,9 @@ module mlc_core
 	wire is_in2  = (a24 == 24'h440000) || (a24 == 24'h440004) || (a24 == 24'h440008) || (a24 == 24'h44001c);
 	wire is_ee   = (a24 == 24'h500000);
 	wire is_ymz  = (a24 == 24'h600000) || (a24 == 24'h600004);
+	wire is_146  = DE156 && has146 && (a24 >= 24'h70f000) && (a24 < 24'h710000);
 
-	typedef enum logic [2:0] {B_IDLE, B_ROM, B_READ1, B_YMZ, B_DONE} bstate_t;
+	typedef enum logic [2:0] {B_IDLE, B_ROM, B_READ1, B_YMZ, B_DONE, B_146} bstate_t;
 	bstate_t bstate;
 	logic        served;
 	logic [31:0] rdata;
@@ -160,8 +181,8 @@ module mlc_core
 	// main RAM, 128 KB: four byte RAMs for the lanes; port B free (hiscore, state)
 	logic [31:0] ram_q, ram_qb;
 	wire         ram_we = (bstate == B_IDLE) && cache_cs && !served && cache_wr && is_ram;
-	// big-endian: byte offset k of a word is lane 3 - k
-	wire  [1:0]  hs_lane = 2'd3 - hs_addr[1:0];
+	// SH-2 big-endian: byte offset k of a word is lane 3 - k; the ARM's is lane k
+	wire  [1:0]  hs_lane = DE156 ? hs_addr[1:0] : 2'd3 - hs_addr[1:0];   // little-endian ARM
 	logic [1:0]  hs_lane_d;
 	always_ff @(posedge clk) hs_lane_d <= hs_lane;
 	assign hs_dout = ram_qb[8*hs_lane_d +: 8];
@@ -209,7 +230,7 @@ module mlc_core
 	);
 
 	mlc_ymz_mem u_ymz_mem (
-		.clk, .reset, .inval(1'b0),
+		.clk, .reset, .inval(1'b0), .plain(gfx_layout == L_ACCHI),
 		.ce_in(ymz_ce_raw && !pause), .ce_out(ymz_ce), .stall(ymz_stall),
 		.ma(ymz_ma), .moe_n(ymz_moe_n), .mdi(ymz_mdi),
 		.mem_req(ymz_req), .mem_addr(ymz_addr), .mem_valid(ymz_valid), .mem_rdata(ymz_rdata)
@@ -220,12 +241,37 @@ module mlc_core
 	wire  [7:0]  vol_g  = 8'd255 - volume;
 	wire  [8:0]  vol_g9 = {1'b0, vol_g} + {8'd0, vol_g[7]};
 	logic signed [25:0] snd_lm, snd_rm;
+	// mlc_5bpp (hoops) adds the swapped routes to mlc's own (mlc 622-630), so each speaker carries
+	// both channels: their sum, saturated as a 16-bit output would be
+	wire signed [16:0] ymz_sum = $signed({ymz_l[15], ymz_l}) + $signed({ymz_r[15], ymz_r});
+	wire        [15:0] ymz_mix = (ymz_sum > 17'sd32767) ? 16'h7fff : (ymz_sum < -17'sd32768) ? 16'h8000 : ymz_sum[15:0];
+	wire               both    = (gfx_layout == L_5BPP);
 	always_ff @(posedge clk) begin
-		snd_lm <= $signed(ymz_l) * $signed({1'b0, vol_g9});
-		snd_rm <= $signed(ymz_r) * $signed({1'b0, vol_g9});
+		snd_lm <= $signed(both ? ymz_mix : ymz_l) * $signed({1'b0, vol_g9});
+		snd_rm <= $signed(both ? ymz_mix : ymz_r) * $signed({1'b0, vol_g9});
 		snd_l  <= snd_lm[23:8];
 		snd_r  <= snd_rm[23:8];
 	end
+
+	// the DE156 program: the download put raw word AddrScramble(a) at word a (mlc_dl_xform), so
+	// the data descramble of word a24[19:2] is all that is left (deco156.cpp; rtl/cpu/de156;
+	// scripts/de156_decrypt_check.py); de156_raddr is unused
+	logic [17:0] de156_raddr;
+	logic [31:0] de156_dec;
+	jtosman_deco156 u_de156 (.a(a24[19:2]), .dec_addr(de156_raddr), .raw(cpu_rom_data), .dec(de156_dec));
+
+	// the DECO 146 (rtl/protection): a word address in the 2 KB window, data and lanes from bits 31:16
+	logic        p146_rd, p146_wr, p146_valid;
+	logic [15:0] p146_dout;
+	generate if (DE156) begin : g146
+		mlc_deco146 u_146 (
+			.clk, .reset, .rd(p146_rd), .wr(p146_wr), .addr(a24[11:2]),
+			.din(cache_din[31:16]), .be(be[3:2]), .dout(p146_dout), .valid(p146_valid)
+		);
+	end else begin : no146
+		assign p146_dout = 16'd0;
+		assign p146_valid = 1'b0;
+	end endgenerate
 
 	// DO is pulled up while the chip is not selected (eepromser.cpp 288-291)
 	wire  [31:0]  inputs_word = {inputs_n[31:24], ee_port[2] ? ee_do : 1'b1, inputs_n[22:0]};
@@ -244,17 +290,19 @@ module mlc_core
 			volume      <= 8'd0;
 			y_cs_n <= 1'b1; y_wr_n <= 1'b1; y_rd_n <= 1'b1;
 			list_we <= 1'b0; vram_we <= 1'b0; pal_we <= 1'b0; reg_we <= 1'b0;
+			p146_rd <= 1'b0; p146_wr <= 1'b0;
 		end else begin
 			cpu_rom_req <= 1'b0;
+			p146_rd <= 1'b0; p146_wr <= 1'b0;
 			list_we <= 1'b0; vram_we <= 1'b0; pal_we <= 1'b0; reg_we <= 1'b0;
 			if (!cache_cs) served <= 1'b0;
 
-			// the scanline interrupt: armed by a write to IRQ word 5, fires at that line's
-			// start, held until the CPU takes it (its vector read) or the game acknowledges
-			if (line_armed && ce_pix && hpos_zero && (vpos == line_reg[8:0])) begin
+			// the scanline interrupt: IRQ word 5 is compared with the line counter every frame until
+			// it is rewritten (-1 disarms), as MAME re-arms its timer when it fires (deco_mlc.cpp
+			// set_raster_irq_timer, df450c1); held until the CPU takes it (its vector read) or
+			// the game acknowledges
+			if (line_armed && ce_pix && hpos_zero && (vpos == line_reg[8:0]))
 				irq_pending <= 1'b1;
-				line_armed  <= 1'b0;
-			end
 
 			case (bstate)
 				B_IDLE: if (start) begin
@@ -288,6 +336,7 @@ module mlc_core
 							if (be[1]) ee_port <= cache_din[15:8];
 							if (be[0]) volume  <= cache_din[7:0];
 						end
+						if (is_146 && (be[3] || be[2])) p146_wr <= 1'b1;                   // mlc 368: bits 31:16
 						if (is_ymz && be[3]) begin                                          // mlc 361: lane 31:24
 							y_a <= a24[2]; y_di <= cache_din[31:24]; y_rd <= 1'b0; y_ph <= 2'd0;
 							bstate <= B_YMZ;
@@ -299,13 +348,18 @@ module mlc_core
 						if (is_rom) begin
 							cpu_rom_req  <= 1'b1;
 							cpu_rom_addr <= a24[19:0];
-							if (a24 == 24'h000100) irq_pending <= 1'b0;   // vector 64 taken (HARDWARE_NOTES, Interrupts)
+							// the interrupt taken: the SH-2's vector 64 (HARDWARE_NOTES, Interrupts),
+							// the ARM's IRQ vector
+							if (a24 == (DE156 ? 24'h000018 : 24'h000100)) irq_pending <= 1'b0;
 							bstate <= B_ROM;
 						end else if (is_ram || is_vram || is_spr || is_pal) begin
 							bstate <= B_READ1;                                           // one clock of RAM latency
 						end else if (is_ymz) begin
 							y_a <= a24[2]; y_rd <= 1'b1; y_ph <= 2'd0;
 							bstate <= B_YMZ;
+						end else if (is_146 && (be[3] || be[2])) begin
+							p146_rd <= 1'b1;
+							bstate  <= B_146;
 						end else begin
 							// the I/O words answer at once (mlc 123-173, 318-324)
 							if (is_irq) begin
@@ -326,7 +380,7 @@ module mlc_core
 				end
 
 				B_ROM: if (cpu_rom_valid) begin
-					rdata  <= cpu_rom_data;
+					rdata  <= DE156 ? de156_dec : cpu_rom_data;
 					served <= 1'b1;
 					bstate <= B_DONE;
 				end
@@ -363,6 +417,12 @@ module mlc_core
 					end
 				endcase
 
+				B_146: if (p146_valid) begin                                          // the 16-bit word in bits 31:16, zero below
+					rdata  <= {p146_dout, 16'h0000};
+					served <= 1'b1;
+					bstate <= B_DONE;
+				end
+
 				B_DONE: if (!cache_cs) bstate <= B_IDLE;                                  // the request drops after cache_ok
 				default: bstate <= B_IDLE;
 			endcase
@@ -390,7 +450,7 @@ module mlc_core
 		.vram_we, .vram_addr(a24[16:2]), .vram_wdata(cache_din), .vram_be(be), .vram_rdata,
 		.pal_we, .pal_addr(a24[12:2]), .pal_wdata(cache_din[15:0]), .pal_rdata,
 		.reg_we, .reg_addr(reg_addr_r), .reg_wdata(reg_word),
-		.parity(parity_in), .flip,
+		.parity(parity_in), .flip, .gfx_layout, .gfx_frac8,
 		.mem_req(spr_req), .mem_addr(spr_addr), .mem_valid(spr_valid), .mem_rdata(spr_rdata),
 		.ce_pix, .r, .g, .b, .hblank, .vblank, .hs, .vs,
 		.pix_valid(), .pix_x(), .pix_y(),

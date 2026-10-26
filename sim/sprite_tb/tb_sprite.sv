@@ -5,12 +5,17 @@
 // clocks from line_start to line_done, units fetched, pixel writes, overrun.
 //
 // The engine's two SDRAM slots are served either by a behavioural model answering 16-byte
-// units from the gfx1 and gfx2 region images in the scripts/mlc_layout.py layout, in request
-// order, +ROMLAT clocks each (+SDRAM=0, the default), or by the real path (+SDRAM=1): the
-// arbiter, the phy, sdram.sv with BL8 and the command-decoding chip model, loaded from the
-// 32 MB image debug/<set>_sdram.bin that `mlc_layout.py --image` writes.
+// units from the 32 MB image debug/<set>_sdram.bin that `mlc_layout.py --set <set> --image`
+// writes, in request order, +ROMLAT clocks each (+SDRAM=0, the default), or by the real path
+// (+SDRAM=1): the arbiter, the phy, sdram.sv with BL8 and the command-decoding chip model,
+// loaded from the same image.
 //
-//   scripts/run_verilator.sh sprite_tb +CAPTURE=debug/avengrgs-attract2400 [+PARITY=n] [+ROMLAT=n] [+SDRAM=1]
+// +LAYOUT=n +FRAC8=1 give the set's gfx_layout (the .mra mod byte bits 5:4 and 6; mlc_layout.py
+// set_gfx). A capture with linelog.txt (a set that rewrites the IRQ block or clip RAM mid-frame,
+// stadhr96) starts from its _prev register dumps and replays each logged write during the line
+// it was made on; IRQ word 1 comes from reg_irqregs(_prev).bin, since it reads back 0xffffffff.
+//
+//   scripts/run_verilator.sh sprite_tb +CAPTURE=debug/avengrgs-attract2400 [+SET=s] [+PARITY=n] [+ROMLAT=n] [+SDRAM=1]
 //
 // RUN FROM THE REPOSITORY ROOT.
 `timescale 1ns/1ps
@@ -20,6 +25,8 @@ module tb_sprite;
 	localparam real HALF = 5.9524;          // 84 MHz
 	logic clk = 0;
 	always #(HALF) clk = ~clk;
+	logic clk_sdram = 0;                    // 126 MHz, the SDRAM controller's (+SDRAM=1)
+	always #(3.9683) clk_sdram = ~clk_sdram;
 	logic rst = 1;
 
 	string cap = "debug/avengrgs-attract2400";
@@ -28,9 +35,12 @@ module tb_sprite;
 	logic parity = 0;
 
 	// ---- ROM images ----
-	logic [7:0] gfx1 [0:(1 << 24) + (1 << 23) - 1];     // 24 MB region image
-	logic [7:0] gfx2 [0:(1 << 19) - 1];
-	logic [7:0] sdimg [0:(1 << 25) - 1];                  // the SDRAM image (+SDRAM=1)
+	logic [7:0] sdimg [0:(1 << 25) - 1];                  // the SDRAM image
+	logic [1:0] gfx_layout = 0;
+	logic       gfx_frac8 = 0;
+	logic        reg_we_log = 0;
+	logic [5:0]  reg_addr_log;
+	logic [31:0] reg_wdata_log;
 
 	// ---- DUT ----
 	logic         list_we, vram_we, pal_we, reg_we;
@@ -54,35 +64,19 @@ module tb_sprite;
 		.list_we, .list_addr, .list_wdata,
 		.vram_we, .vram_addr, .vram_wdata, .vram_be,
 		.pal_we, .pal_addr, .pal_wdata,
-		.reg_we, .reg_addr, .reg_wdata,
-		.parity, .flip(flip_arg[0]),
+		.reg_we(reg_we || reg_we_log), .reg_addr(reg_we_log ? reg_addr_log : reg_addr),
+		.reg_wdata(reg_we_log ? reg_wdata_log : reg_wdata),
+		.parity, .flip(flip_arg[0]), .gfx_layout, .gfx_frac8,
 		.mem_req, .mem_addr, .mem_valid, .mem_rdata,
 		.ce_pix, .r, .g, .b, .hblank, .vblank, .hs, .vs, .pix_valid, .pix_x, .pix_y,
 		.line_start, .line_valid, .render_line, .line_done, .ovr_ev, .list_busy
 	);
 
-	// ---- a 16-byte unit from the region images, in the SDRAM image's layout ----
-	localparam int HALF_RGN = 24'hC00000;
+	// ---- a 16-byte unit of the SDRAM image ----
 	function automatic logic [127:0] unit_of(input logic [25:0] a);
 		logic [127:0] d;
-		int u, tp, r, o, k, jj;
-		d = '0;
-		if (a >= GFX1_BASE && a < GFX1_BASE + 26'h1800000) begin
-			u  = int'(a - GFX1_BASE) >> 4;          // tile pair u>>4, row u&15 (mlc_layout.gfx1_unit)
-			tp = u >> 4; r = u & 15;
-			for (k = 0; k < 2; k++) begin
-				o = (2 * tp + k) * 64 + r * 4;
-				for (jj = 0; jj < 4; jj++) begin
-					d[64*k + 8*jj +: 8]      = gfx1[o + jj];
-					d[64*k + 32 + 8*jj +: 8] = gfx1[HALF_RGN + o + jj];
-				end
-			end
-		end else if (a >= GFX2_BASE && a < GFX2_BASE + 26'h80000) begin
-			o = int'(a - GFX2_BASE);
-			for (k = 0; k < 16; k++) d[8*k +: 8] = gfx2[o + k];
-		end else begin
-			$display("SDRAM: request outside gfx1/gfx2 at %07X", a);
-		end
+		if (!(a >= GFX1_BASE && a < GFX2_BASE + 26'h80000)) $display("SDRAM: request outside gfx1/gfx2 at %07X", a);
+		for (int k = 0; k < 16; k++) d[8*k +: 8] = sdimg[int'(a) + k];
 		return d;
 	endfunction
 
@@ -136,23 +130,26 @@ module tb_sprite;
 	logic [127:0] a_rdata;
 
 	sdram_chip_model_wide u_chip (
-		.clk, .SDRAM_DQ, .SDRAM_A, .SDRAM_BA, .SDRAM_nCS, .SDRAM_nWE, .SDRAM_nRAS, .SDRAM_nCAS
+		.clk(clk_sdram), .SDRAM_DQ, .SDRAM_A, .SDRAM_BA, .SDRAM_nCS, .SDRAM_nWE, .SDRAM_nRAS, .SDRAM_nCAS
 	);
-	sdram #(.BL8(1)) u_sdram (
+	// the controller on its own 126 MHz clock, as mlc_sdram_top runs it
+	logic [1:0] rst_s;
+	always_ff @(posedge clk_sdram) rst_s <= {rst_s[0], rst};
+	sdram #(.BL8(1), .RFS_CYCLES(980), .RCD(3), .CL(3)) u_sdram (
 		.SDRAM_DQ, .SDRAM_A, .SDRAM_DQML, .SDRAM_DQMH, .SDRAM_BA, .SDRAM_nCS, .SDRAM_nWE, .SDRAM_nRAS, .SDRAM_nCAS,
-		.SDRAM_CLK, .SDRAM_CKE, .init(sd_init), .clk,
+		.SDRAM_CLK, .SDRAM_CKE, .init(sd_init), .clk(clk_sdram),
 		.addr0(p_addr), .wrl0(p_wrl), .wrh0(p_wrh), .din0(p_din), .dout0(p_dout), .req0(p_req), .ack0(p_ack),
 		.addr1('0), .wrl1(1'b0), .wrh1(1'b0), .din1('0), .dout1(), .req1(1'b0), .ack1(),
 		.addr2('0), .wrl2(1'b0), .wrh2(1'b0), .din2('0), .dout2(), .req2(1'b0), .ack2()
 	);
-	sdram_phy #(.GB(16)) u_phy (
-		.clk, .reset(rst),
+	sdram_port_cdc #(.GB(16)) u_phy (
+		.clk, .reset(rst), .clk_sdram, .reset_sdram(rst_s[1]),
 		.port_addr(p_addr), .port_wrl(p_wrl), .port_wrh(p_wrh), .port_din(p_din), .port_dout(p_dout),
 		.port_req(p_req), .port_ack(p_ack),
 		.req(phy_req), .we(phy_we), .we16(phy_we16), .addr(phy_addr), .wdata(phy_wdata),
 		.busy(phy_busy), .valid(phy_valid), .rdata(phy_rdata)
 	);
-	sdram_arbiter #(.N(2), .GB(16)) u_arb (
+	mlc_port_arbiter #(.N(2), .GB(16)) u_arb (
 		.clk, .reset(rst),
 		.phy_req, .phy_we, .phy_we16, .phy_addr, .phy_wdata, .phy_busy, .phy_valid, .phy_rdata,
 		.c_req(mem_req), .c_addr(mem_addr), .c_valid(a_valid), .c_rdata(a_rdata),
@@ -223,8 +220,8 @@ module tb_sprite;
 			         $signed({{4{dut.u_engine.u_draw.hs.x[11]}}, dut.u_engine.u_draw.hs.x, 16'b0}) + (dut.u_engine.u_draw.negx ? -$signed({4'b0, dut.u_engine.u_draw.pacc}) : $signed({4'b0, dut.u_engine.u_draw.pacc})),
 			         dut.u_engine.u_draw.cacc);
 		if (dut.u_engine.u_draw.rq_push)
-			$display("   ROW bx %0d tile %0x tile2 %0x coloff %0d sx %0d width %0d  [newA %0d newB %0d]", dut.u_engine.u_draw.bx - 1, dut.u_engine.u_draw.code_w,
-			         dut.u_engine.u_draw.code2_w, dut.u_engine.u_draw.coloff, dut.u_engine.u_draw.sx, dut.u_engine.u_draw.width,
+			$display("   ROW bx %0d tile %0x tile2 %0x coloff %0d t %0d walk %0d  [newA %0d newB %0d]", dut.u_engine.u_draw.bx - 1, dut.u_engine.u_draw.code_w,
+			         dut.u_engine.u_draw.code2_w, dut.u_engine.u_draw.coloff, dut.u_engine.u_draw.rq_in.t, dut.u_engine.u_draw.rq_in.walk,
 			         dut.u_engine.u_draw.newA, dut.u_engine.u_draw.newB);
 		if (dut.u_engine.u_draw.rstate == dut.u_engine.u_draw.R_IDLE && dut.u_engine.u_draw.job_v)
 			$display("   JOB sprite %0x w %0d", dut.u_engine.u_draw.j_sprite, dut.u_engine.u_draw.j_w);
@@ -277,6 +274,28 @@ module tb_sprite;
 	logic [7:0] fbuf [0:131071];
 	int n;
 
+	// ---- the line log: write k is made during line log_line[k] of the captured frame (lines
+	// 248-255 as -8..-1, the previous frame's vblank) on the register port; the capture's lines
+	// 8-247 are rendered while nframe == 2, lines 248..255 before them while nframe is 1 (248) and
+	// 2 (249-255) ----
+	int    log_line [0:8191];
+	int    log_off  [0:8191];
+	int    log_data [0:8191];
+	int    log_mask [0:8191];
+	int    n_log = 0, log_i = 0;
+	logic  has_log = 0;
+	logic  log_go = 0;
+	int    log_cur = -1000;
+	logic  log_frame = 0;
+	always_ff @(posedge clk) if (!rst && has_log && line_start) begin
+		if (!log_frame) begin
+			if (nframe == 1 && render_line == 9'd248) begin log_frame <= 1'b1; log_cur <= -8; end
+		end else if (render_line == 9'd248) begin
+			log_frame <= 1'b0; log_cur <= -1000;
+		end else if (render_line >= 9'd249 && render_line <= 9'd255) log_cur <= int'(render_line) - 256;
+		else if (render_line <= 9'd247) log_cur <= int'(render_line);
+	end
+
 	task automatic load_file(input string name, output int nread);
 		int fd;
 		fd = $fopen({cap, "/", name}, "rb");
@@ -310,6 +329,15 @@ module tb_sprite;
 		@(posedge clk); pal_we <= 1'b0;
 	endtask
 
+	// the logged writes of the current line, after its line_start latch, one a clock
+	always @(posedge clk) if (!rst && has_log && log_cur > -1000 && log_i < n_log && log_line[log_i] <= log_cur && !reg_we) begin
+		if (log_mask[log_i] != 32'hffffffff) $display("line log: a %08x-masked write to %06x applied whole", log_mask[log_i], log_off[log_i]);
+		reg_we_log   <= 1'b1;
+		reg_addr_log <= (log_off[log_i] >= 32'h200080) ? 6'(32 + ((log_off[log_i] - 32'h200080) >> 2)) : 6'((log_off[log_i] - 32'h200000) >> 2);
+		reg_wdata_log <= log_data[log_i];
+		log_i <= log_i + 1;
+	end else reg_we_log <= 1'b0;
+
 	task automatic write_regs(input int base);
 		for (int i = 0; i < 32; i++) begin
 			@(posedge clk);
@@ -339,22 +367,15 @@ module tb_sprite;
 		end
 		parity = (parity_arg >= 0) ? parity_arg[0] : frame_no[0];
 
-		fd = $fopen({"debug/", set, "_gfx1.bin"}, "rb");
-		if (fd == 0) begin $display("cannot open debug/%s_gfx1.bin", set); $finish; end
-		n = $fread(gfx1, fd); $fclose(fd);
-		$display("gfx1: %0d bytes", n);
-		fd = $fopen({"debug/", set, "_gfx2.bin"}, "rb");
-		if (fd == 0) begin $display("cannot open debug/%s_gfx2.bin", set); $finish; end
-		n = $fread(gfx2, fd); $fclose(fd);
-		$display("gfx2: %0d bytes", n);
-
+		begin int lay = 0, f8 = 0; void'($value$plusargs("LAYOUT=%d", lay)); void'($value$plusargs("FRAC8=%d", f8));
+			gfx_layout = 2'(lay); gfx_frac8 = f8 != 0; end
+		fd = $fopen({"debug/", set, "_sdram.bin"}, "rb");
+		if (fd == 0) begin $display("cannot open debug/%s_sdram.bin (scripts/mlc_layout.py --set %s --image)", set, set); $finish; end
+		n = $fread(sdimg, fd); $fclose(fd);
+		$display("sdram image: %0d bytes, layout %0d frac8 %0d", n, gfx_layout, gfx_frac8);
 		if (use_sdram) begin
-			// the 32 MB image, word w = bytes 2w (low) and 2w+1; the chip model's index for
-			// the low 32 MB is the word address (sdram.sv: bank = a[24:23], row a[22:10], col a[9:1])
-			fd = $fopen({"debug/", set, "_sdram.bin"}, "rb");
-			if (fd == 0) begin $display("cannot open debug/%s_sdram.bin (scripts/mlc_layout.py --image)", set); $finish; end
-			n = $fread(sdimg, fd); $fclose(fd);
-			$display("sdram image: %0d bytes", n);
+			// word w = bytes 2w (low) and 2w+1; the chip model's index for the low 32 MB is the
+			// word address (sdram.sv: bank = a[24:23], row a[22:10], col a[9:1])
 			for (int w = 0; w < (1 << 24); w++) u_chip.mem[w] = {sdimg[2*w + 1], sdimg[2*w]};
 		end
 		list_we = 0; vram_we = 0; pal_we = 0; reg_we = 0;
@@ -373,10 +394,33 @@ module tb_sprite;
 		write_vram();
 		load_file("palette.bin", n);
 		write_pal();
-		load_file("clipram.bin", n);
+		// with a line log: the registers as the previous frame left them, then the log's writes
+		fd = $fopen({cap, "/linelog.txt"}, "r");
+		has_log = (fd != 0);
+		if (has_log) begin
+			int ln, off, d, m;
+			while ($fscanf(fd, "%h %h %h %h", ln, off, d, m) == 4) begin
+				log_line[n_log] = (ln >= 248) ? ln - 256 : ln;
+				log_off[n_log] = off; log_data[n_log] = d; log_mask[n_log] = m;
+				n_log++;
+			end
+			$fclose(fd);
+		end
+		load_file(has_log ? "clipram_prev.bin" : "clipram.bin", n);
 		write_regs(32);
-		load_file("irqram.bin", n);
+		load_file(has_log ? "irqram_prev.bin" : "irqram.bin", n);
+		// IRQ word 1 as written (it reads back 0xffffffff)
+		begin
+			int fr;
+			fr = $fopen({cap, has_log ? "/reg_irqregs_prev.bin" : "/reg_irqregs.bin"}, "rb");
+			if (fr != 0) begin
+				logic [7:0] rb [0:127];
+				void'($fread(rb, fr)); $fclose(fr);
+				for (int k = 4; k < 8; k++) fbuf[k] = rb[k];
+			end
+		end
 		write_regs(0);
+		$display("line log: %0d writes", n_log);
 
 		$display("capture %s, frame %0d, parity %0d, romlat %0d", cap, frame_no, parity, romlat);
 		if (dbg) $display("clip_min_y %h clip_max_y %h clip_min_x %h clip_max_x %h alpha %0d",

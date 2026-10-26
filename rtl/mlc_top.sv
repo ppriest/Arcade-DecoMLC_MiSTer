@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// The MLC board: mlc_core (the SH7604, its bus, the video) on mlc_sdram_top (the program ROM,
+// The MLC board: mlc_core (the SH7604 or, with DE156, the ARM; its bus, the video) on mlc_sdram_top (the program ROM,
 // the sprite units, the samples, the download). What is left above this is the MiSTer
 // framework's glue in DecoMLC.sv: HPS, PLL, inputs, the video output path.
-module mlc_top (
+module mlc_top #(
+	parameter bit DE156 = 1'b0
+) (
 	input  logic         clk,
 	input  logic         clk_cpu,
+	input  logic         clk_sdram,       // 126 MHz: the SDRAM controller (mlc_sdram_top)
 	input  logic         reset,           // the game (held through the download)
 	input  logic         video_reset,     // the raster
 	input  logic         init,            // the SDRAM controller's init (PLL lock)
@@ -43,6 +46,9 @@ module mlc_top (
 	output logic         ldr_busy,
 
 	input  logic [31:0]  inputs_n,
+	input  logic         has146,          // the set has the DECO 146 (the .mra mod byte)
+	input  logic [1:0]   gfx_layout,      // the gfx_layout (the .mra mod byte): the engine and the download
+	input  logic         gfx_frac8,
 	input  logic         ee_we,
 	input  logic [5:0]   ee_addr,
 	input  logic [15:0]  ee_din,
@@ -96,18 +102,18 @@ module mlc_top (
 	assign dbg_rom_addr  = cpu_rom_addr;
 	assign dbg_rom_data  = cpu_rom_data;
 
-	mlc_core u_core (
+	mlc_core #(.DE156(DE156)) u_core (
 		.clk, .clk_cpu, .reset(game_reset), .video_reset, .pause,
 		.cpu_rom_req, .cpu_rom_addr, .cpu_rom_valid, .cpu_rom_data,
 		.spr_req, .spr_addr, .spr_valid, .spr_rdata,
 		.ymz_req, .ymz_addr, .ymz_valid, .ymz_rdata,
-		.inputs_n, .ee_we, .ee_addr, .ee_din, .parity_in(parity), .flip, .hs_addr, .hs_din, .hs_dout, .hs_we,
+		.inputs_n, .has146, .gfx_layout, .gfx_frac8, .ee_we, .ee_addr, .ee_din, .parity_in(parity), .flip, .hs_addr, .hs_din, .hs_dout, .hs_we,
 		.ce_pix, .r, .g, .b, .hblank, .vblank, .hs, .vs, .vbl_start, .frame_top,
 		.volume, .snd_l, .snd_r, .line_done, .ovr_ev, .dbg_clear, .dbg
 	);
 
-	mlc_sdram_top u_mem (
-		.clk, .reset(video_reset), .init,
+	mlc_sdram_top #(.CPU_LE(DE156)) u_mem (
+		.clk, .reset(video_reset), .clk_sdram, .init,
 		.SDRAM_A, .SDRAM_DQML, .SDRAM_DQMH, .SDRAM_BA, .SDRAM_nCS, .SDRAM_nWE, .SDRAM_nRAS, .SDRAM_nCAS,
 		.SDRAM_CLK, .SDRAM_CKE, .SDRAM_DQ,
 		.ioctl_download, .ioctl_index, .ioctl_wr, .ioctl_addr, .ioctl_dout, .ioctl_wait,
@@ -115,7 +121,8 @@ module mlc_top (
 		.ldr_start, .ldr_length, .ldr_busy,
 		.spr_req, .spr_addr, .spr_valid, .spr_rdata,
 		.cpu_rom_req, .cpu_rom_addr, .cpu_rom_valid, .cpu_rom_data,
-		.ymz_req, .ymz_addr, .ymz_valid, .ymz_rdata
+		.ymz_req, .ymz_addr, .ymz_valid, .ymz_rdata,
+		.gfx_layout, .gfx_frac8
 	);
 
 endmodule

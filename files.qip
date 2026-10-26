@@ -4,6 +4,23 @@ set_global_assignment -name SYSTEMVERILOG_FILE rtl/mlc_top.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/sound/ymz280b/YMZ280B_pkg.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/sound/ymz280b/YMZ280B.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/sound/mlc_ymz_mem.sv
+set_global_assignment -name SEARCH_PATH rtl/cpu
+set_global_assignment -name VERILOG_FILE rtl/cpu/amber/a23_core.v
+set_global_assignment -name VERILOG_FILE rtl/cpu/amber/a23_decode.v
+set_global_assignment -name VERILOG_FILE rtl/cpu/amber/a23_execute.v
+set_global_assignment -name VERILOG_FILE rtl/cpu/amber/a23_register_bank.v
+set_global_assignment -name VERILOG_FILE rtl/cpu/amber/a23_fetch.v
+set_global_assignment -name VERILOG_FILE rtl/cpu/amber/a23_alu.v
+set_global_assignment -name VERILOG_FILE rtl/cpu/amber/a23_barrel_shift.v
+set_global_assignment -name VERILOG_FILE rtl/cpu/amber/a23_multiply.v
+set_global_assignment -name VERILOG_FILE rtl/cpu/amber/a23_cache.v
+set_global_assignment -name VERILOG_FILE rtl/cpu/amber/a23_wishbone.v
+set_global_assignment -name VERILOG_FILE rtl/cpu/amber/a23_coprocessor.v
+set_global_assignment -name VERILOG_FILE rtl/cpu/amber/sram_line_en.v
+set_global_assignment -name VERILOG_FILE rtl/cpu/amber/sram_byte_en.v
+set_global_assignment -name VERILOG_FILE rtl/cpu/de156/jtosman_deco156.v
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cpu/mlc_de156.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/protection/mlc_deco146.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/mlc_core.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/mlc_ram.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/mame_keys.sv
@@ -40,7 +57,6 @@ set_global_assignment -name SYSTEMVERILOG_FILE rtl/cpu/jtsh7604.sv
 
 # the video block (docs/phase1_video.md)
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/mlc_video_pkg.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/mlc_recip_table.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/mlc_fifo.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/mlc_sprite_list.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/mlc_vram.sv
@@ -60,7 +76,15 @@ set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/sdram_download.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/mlc_dl_xform.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/ddram_phy.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/rom_loader.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/mlc_rom_cache.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/mlc_async_fifo.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/sdram_port_cdc.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/mlc_port_arbiter.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/mlc_sdram_top.sv
 
 # the 93C45 (rtl/jteeprom)
 set_global_assignment -name VERILOG_FILE rtl/jteeprom/jt9346.v
+# clk_sdram on a global clock: the fitter put it on a regional one covering a quarter of the die,
+# which cannot clock the SDRAM pins' I/O registers outside it, so their registers landed in the
+# fabric with untimed pin paths, and a release fit came up black (docs/LESSONS_LEARNED.md)
+set_instance_assignment -name GLOBAL_SIGNAL "GLOBAL CLOCK" -to "emu:emu|pll:pll|pll_0002:pll_inst|altera_pll:altera_pll_i|outclk_wire[3]"

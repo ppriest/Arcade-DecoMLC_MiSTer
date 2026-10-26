@@ -38,12 +38,29 @@ ROMDIRS = [Path(p) for p in (setting("MAME_ROMPATH") or "F:/Emulation/roms/MAME 
 
 # set: parent or None. The SH-2 sets first (docs/ROADMAP.md, Game scope).
 SETS = {"avengrgs": None, "avengrgsj": "avengrgs"}
+# the DE156 sets (Phase 4): parent or None. Not yet in SETS: they have no .mra yet, only
+# --regions for the benches.
+DE156_SETS = {"stadhr96": None, "stadhr96u": "stadhr96", "stadhr96j": "stadhr96",
+              "stadhr96j2": "stadhr96", "stadhr96k": "stadhr96",
+              "skullfng": None, "skullfngj": "skullfng", "skullfnga": "skullfng",
+              "hoops96": None, "hoops95": "hoops96", "ddream95": "hoops96", "acchi": None}
 # the .rbf: DecoMLC for the SH-2 machine config (avengrgs), DecoMLC156 for the DE156 ones
 # (docs/ROADMAP.md, "Two .rbfs, one project"); see <rbf> below
 # Four buttons a player (deco_mlc.cpp 379-381, 400); the names are the project owner's
 # correction of ones taken from MAME by observation (docs/HACKS.md).
-BUTTONS = {"avengrgs": ["Light Punch", "Heavy Punch", "Light Kick", "Heavy Kick"]}
-CATEGORY = {"avengrgs": "Fighter"}
+# The DE156 sets' names are their own how-to-play screens' in MAME (A, B, C), except hoops96's
+# B and C, and acchi's, which are its grip lever's two buttons, found by holding each in the
+# practice round (BUTTON_NOTES).
+BUTTONS = {"avengrgs": ["Light Punch", "Heavy Punch", "Light Kick", "Heavy Kick"],
+           "stadhr96": ["Dash", "Pitch/Swing", "Bunt/Substitute"],
+           "skullfng": ["Shot", "Shot/Throttle", "Barrel Roll/Bomb"],
+           "hoops96":  ["Shoot", "Pass", "Switch Player"],
+           "acchi":    ["Upper Button", "Lower Button"]}
+# a comment above <buttons>, where a name alone does not say how the game is played
+BUTTON_NOTES = {"acchi": ["the grip lever's two buttons: Upper and Lower held = Rock, Lower alone = Scissors,",
+                          "neither = Paper (Upper alone is no hand). Start is the red button that advances."]}
+CATEGORY = {"avengrgs": "Fighter", "stadhr96": "Sports", "skullfng": "Shooter", "hoops96": "Sports",
+            "acchi": "Puzzle"}
 ROTATION = {0: "horizontal", 90: "vertical (cw)", 270: "vertical (ccw)"}
 ROT_CODE = {0: 0, 90: 1, 270: 2}   # mod byte bits 2:1
 # MAME's hiscore plugin data, beside the driver's source tree
@@ -68,7 +85,8 @@ def game_info(text, setname):
 
 
 def zips_for(setname):
-    names = [setname + ".zip"] + ([SETS[setname] + ".zip"] if SETS[setname] else [])
+    parent = SETS[setname] if setname in SETS else DE156_SETS[setname]
+    names = [setname + ".zip"] + ([parent + ".zip"] if parent else [])
     found = []
     for n in names:
         for d in [REPO / "roms"] + ROMDIRS:
@@ -93,6 +111,10 @@ def load_region(zs, records, size):
             out[dest:dest + length] = data
         elif kind == "load16_byte":
             out[dest:dest + 2 * length:2] = data
+        elif kind == "load32_word":
+            # ROM_GROUPWORD | ROM_SKIP(2): each 16-bit word as stored, into every other word
+            out[dest:dest + 2 * length:4] = data[0::2]
+            out[dest + 1:dest + 2 * length:4] = data[1::2]
         elif kind == "load32_wswap":
             # ROM_GROUPWORD | ROM_SKIP(2) | ROM_REVERSE: each 16-bit word byte-reversed into
             # every other word of the region (romload.cpp)
@@ -158,7 +180,7 @@ def build(setname, out_root, write=True):
     text = DRIVER.read_text(encoding="utf-8", errors="replace")
     body = ers.blocks(text)[setname]
     info = game_info(text, setname)
-    parent = SETS[setname]
+    parent = SETS[setname] if setname in SETS else DE156_SETS[setname]
     names, paths = zips_for(setname)
     if not paths:
         print(f"{setname}: no zip found ({' / '.join(names)}); skipped")
@@ -187,26 +209,42 @@ def build(setname, out_root, write=True):
             pos = addr
         assert pos == addr, (why, hex(pos), hex(addr))
 
+    # lanes of the output word, and bytes each file gives a word, per record kind
+    SHAPE = {"load16_byte": (2, 1), "load32_wswap": (4, 2), "load32_word": (4, 2)}
     for region, base, cap in REGIONS:
         recs = sorted(rec[region], key=lambda r: r[2])
         if not recs:
             continue
         pad_to(base, f"{region} at 0x{base:X}")
         L.append(f"        <!-- {region} -->")
-        kinds = {r[0] for r in recs}
-        if kinds == {"load"}:
-            for kind, name, dest, length, crc, *rest in recs:
-                pad_to(base + dest, f"{region} 0x{dest:x}")
-                L.append(f'        <part name="{escape(name)}" crc="{crc:08x}"/>')
-                pos += length
-        elif kinds in ({"load16_byte"}, {"load32_wswap"}):
-            lanes = 2 if kinds == {"load16_byte"} else 4
-            per = 2        # files a group
-            for i in range(0, len(recs), per):
-                grp = recs[i:i + per]
+        # runs of one kind, in address order (hoops: byte pairs, then one word-swapped plane)
+        runs = []
+        for r in recs:
+            if runs and runs[-1][0][0] == r[0]:
+                runs[-1].append(r)
+            else:
+                runs.append([r])
+        for run in runs:
+            kind = run[0][0]
+            if kind == "load":
+                for kind, name, dest, length, crc, *rest in run:
+                    pad_to(base + dest, f"{region} 0x{dest:x}")
+                    L.append(f'        <part name="{escape(name)}" crc="{crc:08x}"/>')
+                    pos += length
+                continue
+            if kind not in SHAPE:
+                sys.exit(f"{setname}: {region}: record kind {kind} not handled")
+            lanes, bpf = SHAPE[kind]
+            per = lanes // bpf     # files a group, when they fill the word
+            i = 0
+            while i < len(run):
+                grp = [run[i]]
+                while len(grp) < per and i + len(grp) < len(run) and \
+                        run[i + len(grp)][2] - run[i + len(grp)][2] % lanes == run[i][2] - run[i][2] % lanes:
+                    grp.append(run[i + len(grp)])
                 start, length = grp[0][2] - grp[0][2] % lanes, grp[0][3]
                 assert all(r[3] == length for r in grp), grp
-                total = sum(r[3] for r in grp)           # the group's output: every file's bytes
+                total = length * lanes // bpf             # the group's output, unfilled lanes zero
                 pad_to(base + start, f"{region} 0x{start:x}")
                 want = data[region][start:start + total]
                 chosen = interleave_group(zs, grp, lanes, want, region, start, setname)
@@ -215,11 +253,12 @@ def build(setname, out_root, write=True):
                     L.append(f'            <part name="{escape(r[1])}" crc="{r[4]:08x}" map="{mp}"/>')
                 L.append("        </interleave>")
                 pos += total
-        else:
-            sys.exit(f"{setname}: {region}: mixed record kinds {kinds}")
+                i += len(grp)
     pad_to(len(img), "image end")
 
-    mod = int(info["machine"] != "avengrgs") | ROT_CODE[info["rot"]] << 1
+    g_layout, g_frac8 = layout.set_gfx(setname)
+    mod = (int(info["machine"] != "avengrgs") | ROT_CODE[info["rot"]] << 1 | int(info["machine"] == "stadhr96") << 3
+           | g_layout << 4 | int(g_frac8) << 6)
     hs = hiscore_entries(setname)
     hs_xml = []
     if hs:
@@ -235,9 +274,13 @@ def build(setname, out_root, write=True):
                   f'    <rom index="2" zip="{"|".join(names)}" md5="none">',
                   f'        <part name="{escape(ee[0])}" crc="{ee[1]:08x}"/>', "    </rom>", ""]
     game = BUTTONS[parent or setname]
-    # six button slots, then Start, Coin, Pause at the J1 line's positions (DecoMLC.sv)
-    btn_names = ",".join(game + ["-"] * (6 - len(game)) + ["Start", "Coin", "Pause"])
+    # six button slots, then Start, Coin, Pause, Test at the J1 line's positions (DecoMLC.sv);
+    # Test has no default pad button
+    btn_names = ",".join(game + ["-"] * (6 - len(game)) + ["Start", "Coin", "Pause", "Test"])
     btn_default = ",".join(["A", "B", "X", "Y", "L"][:len(game)] + ["Start", "Select", "R"])
+    notes = BUTTON_NOTES.get(parent or setname, [])
+    note_xml = [("    <!-- " if i == 0 else "         ") + n + (" -->" if i == len(notes) - 1 else "")
+                for i, n in enumerate(notes)]
     q = {chr(34): "&quot;"}
     xml = [
         "<misterromdescription>",
@@ -250,13 +293,15 @@ def build(setname, out_root, write=True):
         f"    <mameversion>{mame_version()}</mameversion>",
         f"    <year>{info['year']}</year>",
         f"    <manufacturer>{escape(info['manufacturer'])}</manufacturer>",
-        f"    <category>{CATEGORY[parent or setname]}</category>",
+        f"    <category>{CATEGORY.get(parent or setname, '')}</category>",
         f"    <rotation>{ROTATION[info['rot']]}</rotation>",
         "    <players>2</players>",
         "    <joystick>8-way</joystick>",
+        *note_xml,
         f'    <buttons names="{escape(btn_names, q)}" default="{btn_default}" count="{len(game)}"/>',
         "",
-        "    <!-- mod byte (DecoMLC.sv): [0] the DE156 configurations (0 = SH-2), [2:1] orientation -->",
+        "    <!-- mod byte (DecoMLC.sv): [0] the DE156 configurations (0 = SH-2), [2:1] orientation,",
+        "         [3] the DECO 146, [5:4] the gfx layout (4bpp, 5bpp, 6bpp, acchi), [6] gfx1 thirds of 8 MB -->",
         f'    <rom index="1"><part>{mod:02X}</part></rom>',
         "",
         *ee_xml,
@@ -298,6 +343,29 @@ def build(setname, out_root, write=True):
     return img
 
 
+def write_regions(setname):
+    """debug/<set>_<region>.bin for every region, raw as MAME loads it (before any init
+    descramble), and debug/<set>_eeprom.bin: what scripts/mlc_layout.py --image and the
+    benches read."""
+    text = DRIVER.read_text(encoding="utf-8", errors="replace")
+    body = ers.blocks(text)[setname]
+    names, paths = zips_for(setname)
+    if not paths:
+        sys.exit(f"{setname}: no zip found ({' / '.join(names)})")
+    zs = [zipfile.ZipFile(p) for p in paths]
+    for region in [r[0] for r in REGIONS] + ["eeprom"]:
+        recs, unknown = ers.region_records(body, region)
+        if unknown:
+            sys.exit(f"{setname}: region {region}: unparsed {unknown}")
+        if not recs:
+            continue
+        cap = dict((r[0], r[2]) for r in REGIONS).get(region, 0x80)
+        data = load_region(zs, recs, min(region_size(body, region), cap))
+        out = REPO / "debug" / f"{setname}_{region}.bin"
+        out.write_bytes(data)
+        print(f"{out.name}: {len(data):#x} bytes")
+
+
 def mame_version():
     exe = Path(setting("MAME_DIR") or "C:/Emulation/Emulators/MAME") / (setting("MAME_EXE") or "mame.exe")
     out = subprocess.run([str(exe), "-version"], capture_output=True, text=True, timeout=30).stdout
@@ -313,7 +381,11 @@ def main():
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--release", action="store_true", help="write to releases/ instead of releases/_dev/")
     ap.add_argument("--image", nargs=2, metavar=("SET", "OUT"))
+    ap.add_argument("--regions", metavar="SET", help="write debug/<set>_<region>.bin and stop")
     a = ap.parse_args()
+    if a.regions:
+        write_regions(a.regions)
+        return
     layout.check_pkg()
     out_root = REPO / "releases" / ("" if a.release else "_dev")
     if a.image:

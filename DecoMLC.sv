@@ -5,7 +5,7 @@
 //
 // Inputs follow deco_mlc.cpp's INPUT_PORTS (lines 373-407): one 32-bit word at 0x400000,
 // active low. hps_io's joystick bits: 0 right, 1 left, 2 down, 3 up, 4-9 the .mra's buttons,
-// 10 Start, 11 Coin, 12 Pause (the .mra <buttons> list, which governs).
+// 10 Start, 11 Coin, 12 Pause, 13 Test (the .mra <buttons> list, which governs).
 //
 // Video: 442 x 274 at 7 MHz from the 84 MHz clk_sys, through CRT Adjust (rtl/video/crt_chain.sv),
 // sys/arcade_video.v (scandoubler, gamma, scanline FX) and sys/video_freak.sv (aspect, integer
@@ -52,8 +52,17 @@ localparam DEBUG_MENU_HIDE = 1'b1;
 `endif
 wire debug_menu_hide = DEBUG_MENU_HIDE;
 
+// MLC_DE156 (the DecoMLC156 revisions): the DE156 board, the encrypted-ARM sets
+`ifdef MLC_DE156
+localparam bit DE156_BUILD = 1'b1;
+`define MLC_CORE_NAME "DecoMLC156;;"
+`else
+localparam bit DE156_BUILD = 1'b0;
+`define MLC_CORE_NAME "DecoMLC;;"
+`endif
+
 localparam CONF_STR = {
-	"DecoMLC;;",
+	`MLC_CORE_NAME,
 	"-;",
 	"H5O[122:121],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"H5O[48:47],Orientation,Auto,Off,CW,CCW;",
@@ -78,8 +87,8 @@ localparam CONF_STR = {
 	"H1P1O[40],Sprites,On,Off;",
 	"-;",
 	"R[0],Reset;",
-	// Agrees with the .mra <buttons> positions: six button slots, then Start, Coin, Pause
-	"J1,Button 1,Button 2,Button 3,Button 4,Button 5,Button 6,Start,Coin,Pause;",
+	// Agrees with the .mra <buttons> positions: six button slots, then Start, Coin, Pause, Test
+	"J1,Button 1,Button 2,Button 3,Button 4,Button 5,Button 6,Start,Coin,Pause,Test;",
 	"V,v",`BUILD_DATE
 };
 
@@ -141,10 +150,10 @@ hps_io #(.CONF_STR(CONF_STR)) hps_io
 
 ///////////////////////   CLOCKS   ///////////////////////////////
 
-// clk_sys 84 MHz, SDRAM_CLK the same shifted, clk_cpu 42 MHz (rtl/pll/pll_0002.v;
+// clk_sys 84 MHz, clk_cpu 42 MHz, clk_sdram 126 MHz and SDRAM_CLK the same shifted (rtl/pll/pll_0002.v;
 // docs/ROADMAP.md, Clocks). The SDRAM_CLK pin is driven from the PLL directly; mlc_top's
 // SDRAM_CLK output is the simulation placeholder.
-wire clk_sys, clk_sdram_shifted, clk_cpu, pll_locked;
+wire clk_sys, clk_sdram_shifted, clk_cpu, clk_sdram, pll_locked;
 pll pll
 (
 	.refclk(CLK_50M),
@@ -152,6 +161,7 @@ pll pll
 	.outclk_0(clk_sys),
 	.outclk_1(clk_sdram_shifted),
 	.outclk_2(clk_cpu),
+	.outclk_3(clk_sdram),
 	.locked(pll_locked)
 );
 
@@ -186,7 +196,7 @@ wire [31:0] inputs_n = {
 	1'b1,                                      // 23 EEPROM DO (mlc_core)
 	~svc_coin[1],                              // 22 service 2
 	2'b11,                                     // 21-20 coin 4, 3
-	~key0[13],                                 // 19 test (F2)
+	~(joy0[13] | joy1[13]),                    // 19 test (F2, or either pad's Test)
 	~svc_coin[0],                              // 18 service 1
 	~joy1[11], ~joy0[11],                      // 17-16 coin 2, 1
 	~joy1[10], ~joy1[6], ~joy1[5], ~joy1[4],   // 15-12 P2 start, buttons 3, 2, 1
@@ -196,7 +206,9 @@ wire [31:0] inputs_n = {
 };
 
 // .mra mod byte, <rom index="1">: bit 0 = a DE156 configuration (0 the SH-2), bits 2:1 =
-// orientation. Latched, not reset: MiSTer holds reset through the download.
+// orientation, bit 3 = the DECO 146 (stadhr96), bits 5:4 = the gfx_layout (0 4bpp, 1 5bpp, 2
+// 6bpp, 3 acchi), bit 6 = a third of gfx1 is 8 MB (stadhr96). Latched, not reset: MiSTer holds
+// reset through the download, and the mod byte comes before the ROM.
 reg [7:0] mod_byte = 8'd0;
 always @(posedge clk_sys) begin
 	if (ioctl_wr && (ioctl_index == 16'd1) && (ioctl_addr == 27'd0)) mod_byte <= ioctl_dout;
@@ -285,9 +297,11 @@ hiscore #(
 wire        ce_pix, hblank, vblank, hsync, vsync, vbl_start, frame_top, line_done, ovr_ev, ldr_busy;
 wire [7:0]  r8, g8, b8, volume;
 
-mlc_top mlc_top (
-	.clk(clk_sys), .clk_cpu(clk_cpu), .reset(reset), .video_reset(video_reset), .init(~pll_locked),
+mlc_top #(.DE156(DE156_BUILD)) mlc_top (
+	.clk(clk_sys), .clk_cpu(clk_cpu), .clk_sdram(clk_sdram), .reset(reset), .video_reset(video_reset), .init(~pll_locked),
 	.pause(pause_core),
+	.has146(mod_byte[3]),
+	.gfx_layout(mod_byte[5:4]), .gfx_frac8(mod_byte[6]),
 
 	.SDRAM_A(SDRAM_A), .SDRAM_DQML(SDRAM_DQML), .SDRAM_DQMH(SDRAM_DQMH),
 	.SDRAM_BA(SDRAM_BA), .SDRAM_nCS(SDRAM_nCS), .SDRAM_nWE(SDRAM_nWE),

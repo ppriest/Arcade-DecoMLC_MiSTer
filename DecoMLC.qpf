@@ -1,4 +1,7 @@
 QUARTUS_VERSION = "17.0"
 # DecoMLC_stp is the instrumented revision (ISSP probes, OSD debug page); DecoMLC the release.
+# DecoMLC156 and DecoMLC156_stp: the same for the DE156 (encrypted ARM) sets, MLC_DE156=1.
+PROJECT_REVISION = "DecoMLC156_stp"
+PROJECT_REVISION = "DecoMLC156"
 PROJECT_REVISION = "DecoMLC_stp"
 PROJECT_REVISION = "DecoMLC"

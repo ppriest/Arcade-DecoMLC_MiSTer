@@ -1002,6 +1002,17 @@ and spending one more cycle in the access state machine closed it (+0.011 ns); t
 six clocks, so the cycle is free. A peripheral hanging combinationally off the CPU bus is
 structural; a multicycle over it is a promise the design does not make.
 
+### [DecoMLC] A second PLL clock for the SDRAM controller may land on a regional clock
+
+With the controller moved to its own PLL output (126 MHz, `outclk_3`), the fitter put that clock
+on a regional network covering a quarter of the die (`Info (11162): ...outclk_wire[3]~CLKENA0
+... uses regional clock`). The SDRAM pins outside it cannot have their I/O registers clocked, so
+`dq_in`, `dq_out`, `SDRAM_A` and the commands were left in the fabric (`Warning (176225): Can't
+pack node ... conflicting location assignments`), with pin paths nothing times. Timing still
+"met"; the debug revision's fit worked on the board and the release revision's came up black.
+Force the clock global (`GLOBAL_SIGNAL "GLOBAL CLOCK"`, `files.qip`) and check every build's log
+for 176225 on the SDRAM pins: sibling cores with the controller on `clk_sys` have none.
+
 ## CPU cores (TG68K.C, T80, vendored CPUs)
 
 ### Budget for the 68k core to be the Fmax-limiting block

@@ -115,3 +115,5 @@ rtl/jteeprom/ver/top/*.lxt
 rtl/cpu/sh7604/tests/*/sim.log
 rtl/cpu/sh7604/tests/*/jtsh7604_cps3_region.v
 rtl/cpu/sh7604/tests/*/simunit.log
+obj_iverilog/
+obj_dir/

@@ -7,6 +7,10 @@ rtl/memory/sdram_download.sv
 rtl/memory/mlc_dl_xform.sv
 rtl/memory/ddram_phy.sv
 rtl/memory/rom_loader.sv
+rtl/memory/mlc_rom_cache.sv
+rtl/memory/mlc_async_fifo.sv
+rtl/memory/sdram_port_cdc.sv
+rtl/memory/mlc_port_arbiter.sv
 rtl/memory/mlc_sdram_top.sv
 sim/common/sdram_chip_model_wide.sv
 sim/download_tb/tb_download.sv

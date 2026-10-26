@@ -167,6 +167,53 @@ Phase 3 (sound) is in progress:
 - **Built.** `DecoMLC_stp` at `dc6b0a8`: timing met (0.073 ns), deployed. Not yet heard on the
   board.
 
+Phase 4 (the DE156 sets, DecoMLC156) is in progress:
+
+- **The CPU.** The Amber a23 ARMv2a from Deco156Simple (`rtl/cpu/amber`), with MAME's DE156
+  coprocessor 0 added (BCD arithmetic and a divide, used by every DE156 program) and its
+  registers starting at 0 as MAME's do. The program descrambled at fetch (`rtl/cpu/de156`): all
+  262144 words of stadhr96u, skullfng, hoops96 and acchi equal MAME's decrypted region. Run at
+  14 MHz, MAME's 7 MHz times its clock scale. `sim/core_tb -GDE156=1` boots stadhr96u: its first
+  182001 bus writes equal MAME's, where the two take an interrupt at different instructions.
+- **The DECO 146** in RTL, the whole of MAME's device as the MLC wires it
+  (`rtl/protection/mlc_deco146.sv`): 129965 random reads equal a port of MAME's.
+- **The scanline interrupt** fires every frame at its line, as MAME `df450c1` has it.
+- **Video.** Every layout (4bpp, 5bpp, 6bpp, acchi) in the engine, the download transform and the
+  model. The engine draws a line at its start with the registers latched then (stadhr96 rewrites
+  the raster words on every other line) and the picture is shown a line later. The model
+  replays MAME's mid-frame register writes per line. RTL, model and MAME pixel-identical on
+  attract frames 900 and 1800 of stadhr96u, skullfng, hoops96 and acchi (`sim/sprite_tb`; stadhr96u
+  on the real SDRAM path too: worst line 4229 of 5304 clocks), and on avengrgs.
+- **Sound variants.** acchi's sample ROM read unscrambled; mlc_5bpp's swapped routes summed into
+  both speakers.
+- **The whole board.** `sim/core_tb -GDE156=1` stadhr96u, 900 frames: frames 600 and 899
+  pixel-identical to MAME frames 562 and 861. The Amber runs on the 42 MHz clock (it misses 84
+  MHz by 6.4 ns), the program is stored by ARM address, and an 8 KB cache serves its reads.
+  The heaviest attract lines still overrun (`HACKS.md`).
+- **Built.** `DecoMLC156_stp` at `cdcb4c0`: timing met (0.236 ns), 64% of the ALMs, deployed with
+  the DE156 `.mra` files in `_dev` and the four zips.
+- **On the board.** Native screenshots of each parent's attract, matched against MAME frames
+  300-3600 (`scripts/match_frame.py`; `debug/hw/`): stadhr96 three of three pixel-identical
+  (frames 1503, 2461, 2923), skullfng three of three (1460, 1924, 2480, against MAME's ROT270
+  frames turned back), hoops96 three of three (1482, 1989, 2502), acchi three of five (1511, 2015,
+  2715); one acchi shot is 108 pixels off frame 2123 in a 14 x 14 corner of the animated logo,
+  one was past frame 3600. Skull Fang's HDMI rotation read from the rotator's DDR3 buffer
+  (0x24000000, the game paused): 720 of 720 sampled pixels equal the native frame turned 90
+  degrees counter-clockwise, MAME's ROT270 orientation; a MiSTer screenshot never shows it.
+- **The SDRAM controller at 126 MHz** behind queued ports (`ec0538e`): `sim/core_tb` stadhr96u, 900
+  frames, no line overruns (770 before). `DecoMLC156_stp` at `ec0538e`: timing met (0.441 ns), 459
+  of 553 RAM blocks. On the board, 12 of 12 attract screenshots pixel-identical to MAME frames:
+  stadhr96 (1619, 2090, 2557), skullfng (1535, 2051, 2565, with Flip Screen on in the saved OSD
+  settings: equal to MAME's frames turned 180 degrees), hoops96 (1539, 2038, 2536), acchi (1605,
+  2103, 2600) (`debug/hw/c126_*`).
+- **Sprite X zoom from one source accumulator** across a sprite's tiles, by the user's decision,
+  where MAME restarts each tile (`MAME_KLUDGES.md`, "Zoom", with the per-capture differences).
+  `sim/sprite_tb`: the RTL's pens equal the model's on all 14 captures, both memory paths; on
+  the SDRAM path no line over budget, stadhr96u-attract440's worst 4723 of 5304 (4476 before).
+  Not yet on the board.
+- **Not yet:** the sound of the DE156 sets by ear; play past attract; the
+  release build; the Avengers build with the 126 MHz controller.
+
 ## Game scope
 
 | Set | Parent | Game | Rot | Config | CPU | maincpu | gfx1 | gfx2 | ymz | Total | MAME |

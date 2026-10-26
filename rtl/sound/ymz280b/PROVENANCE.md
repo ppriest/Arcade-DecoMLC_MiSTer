@@ -3,7 +3,7 @@
 | Stage | What |
 |---|---|
 | Upstream | srg320's `YMZ280B.sv` and `YMZ280B_pkg.sv`, `srg320/Arcade-SKNS_MiSTer rtl/SKNS/`, at `001965f1` (2026-09-18). Header: `//license:BSD-3-Clause (derived from MAME's ymz280b)`. Runs in that core beside the same SH7604 at 14.3 MHz. |
-| Here | Copied **untouched**. |
+| Here | Copied, then four local changes, each marked in the file (Local changes, below). |
 
 No testbench ships upstream. Verification is against MAME register-write traces in Phase 3
 (`docs/ROADMAP.md`), and by ear on the board.
@@ -12,9 +12,9 @@ No testbench ships upstream. Verification is against MAME register-write traces 
 
 8-bit register port (`A`, `DI`, `DO`, `RD_N`, `WR_N`, `CS_N`), 24-bit byte memory port (`MA`,
 `MDI`, `MOE_N`), 16-bit stereo out, `CE` for the chip clock (14 MHz here, 1 in 6 of 84 MHz),
-`SND_EN` per-channel enables for debugging. The wrapper this core adds (not in this directory)
-puts eight one-granule prefetch buffers between `MA`/`MDI` and the SDRAM port and permutes the
-address lines as `deco_mlc.cpp`'s `descramble_sound` does (`docs/HARDWARE_NOTES.md`, Sound).
+`SND_EN` per-channel enables for debugging. `rtl/sound/mlc_ymz_mem.sv` (not in this directory)
+puts sixteen held 16-byte units between `MA`/`MDI` and the SDRAM port and permutes the address
+lines as `deco_mlc.cpp`'s `descramble_sound` does (`docs/HARDWARE_NOTES.md`, Sound).
 
 ## Local changes
 

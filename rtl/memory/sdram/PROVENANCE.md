@@ -48,6 +48,19 @@ invisible without a chip model that decodes commands:
 LESSONS_LEARNED, "Verify a burst extension against a command-decoding chip model, not a latency
 stub".
 
+## DecoMLC's own changes
+
+Besides the BL8 burst, the GB width and the RFS_CYCLES parameter recorded above (all marked in
+the file):
+
+- **RCD and CL are parameters** (upstream's `RASCAS_DELAY` and `CAS_LATENCY`, 2 and 2). The
+  DecoMLC cores run the controller at 126 MHz with 3 and 3: tRCD is 20 ns, and CAS latency 2 is not
+  specified that fast for every chip a MiSTer SDRAM module carries.
+- **`state` is five bits.** At RCD 3, CL 3 and BL8, STATE_LAST is 16 and the four-bit counter
+  wrapped to 0: every read returned zeros (`sim/download_tb`, the first 126 MHz run).
+- The controller now has its own clock; its clients reach it through `rtl/memory/sdram_port_cdc.sv`
+  (dual-clock queues), not this file.
+
 ## The 32 MB ceiling, and FG-3
 
 `addr0`/`addr1`/`addr2` were `[24:1]` upstream — 24 bits of **word** address, i.e. exactly 32 MB; this copy widens them to `[25:1]` and drives bit 25 onto A9 at column time, the 64 MB layout of the 128 MB module's first chip (FG-3 needs 56.5 MB). That was

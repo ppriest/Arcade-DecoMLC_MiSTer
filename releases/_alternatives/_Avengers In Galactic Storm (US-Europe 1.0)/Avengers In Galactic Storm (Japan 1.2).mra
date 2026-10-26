@@ -12,9 +12,10 @@
     <rotation>horizontal</rotation>
     <players>2</players>
     <joystick>8-way</joystick>
-    <buttons names="Light Punch,Heavy Punch,Light Kick,Heavy Kick,-,-,Start,Coin,Pause" default="A,B,X,Y,Start,Select,R" count="4"/>
+    <buttons names="Light Punch,Heavy Punch,Light Kick,Heavy Kick,-,-,Start,Coin,Pause,Test" default="A,B,X,Y,Start,Select,R" count="4"/>
 
-    <!-- mod byte (DecoMLC.sv): [0] the DE156 configurations (0 = SH-2), [2:1] orientation -->
+    <!-- mod byte (DecoMLC.sv): [0] the DE156 configurations (0 = SH-2), [2:1] orientation,
+         [3] the DECO 146, [5:4] the gfx layout (4bpp, 5bpp, 6bpp, acchi), [6] gfx1 thirds of 8 MB -->
     <rom index="1"><part>00</part></rom>
 
     <!-- the factory EEPROM image (ROM_REGION16_BE eeprom): the core loads it into its 93C45 -->

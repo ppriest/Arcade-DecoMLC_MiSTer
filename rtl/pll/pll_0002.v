@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The core's clocks from the 50 MHz reference (docs/ROADMAP.md, Clocks):
 //   outclk_0  clk_sys   84 MHz = 12 x the 7 MHz pixel clock; the SDRAM controller and the video
-//   outclk_1  SDRAM_CLK 84 MHz, 5952 ps = 180 degrees, as Psikyo and Fuuki run the same controller
-//             at 85.9 MHz on hardware (5820 ps). Runs avengrgs on the board; not swept (docs/HACKS.md)
+//   outclk_1  SDRAM_CLK 126 MHz, 3968 ps = 180 degrees, as the controller ran at 84 MHz (5952 ps)
+//             on the board; not swept (docs/HACKS.md)
 //   outclk_2  clk_cpu   42 MHz, the SH7604's own domain (CE 1 in 2 = 21 MHz), related to
 //             clk_sys through the PLL so the wrapper's req/ack seam is timed, not synchronised
+//   outclk_3  clk_sdram 126 MHz, the SDRAM controller's, reached from clk_sys through
+//             sdram_port_cdc's queues; constrained as asynchronous (DecoMLC.sdc)
 `timescale 1ns/10ps
 module  pll_0002(
 
@@ -23,6 +25,9 @@ module  pll_0002(
 	// interface 'outclk2'
 	output wire outclk_2,
 
+	// interface 'outclk3'
+	output wire outclk_3,
+
 	// interface 'locked'
 	output wire locked
 );
@@ -31,17 +36,17 @@ module  pll_0002(
 		.fractional_vco_multiplier("false"),
 		.reference_clock_frequency("50.0 MHz"),
 		.operation_mode("direct"),
-		.number_of_clocks(3),
+		.number_of_clocks(4),
 		.output_clock_frequency0("84.000000 MHz"),
 		.phase_shift0("0 ps"),
 		.duty_cycle0(50),
-		.output_clock_frequency1("84.000000 MHz"),
-		.phase_shift1("5952 ps"),
+		.output_clock_frequency1("126.000000 MHz"),
+		.phase_shift1("3968 ps"),
 		.duty_cycle1(50),
 		.output_clock_frequency2("42.000000 MHz"),
 		.phase_shift2("0 ps"),
 		.duty_cycle2(50),
-		.output_clock_frequency3("0 MHz"),
+		.output_clock_frequency3("126.000000 MHz"),
 		.phase_shift3("0 ps"),
 		.duty_cycle3(50),
 		.output_clock_frequency4("0 MHz"),
@@ -90,7 +95,7 @@ module  pll_0002(
 		.pll_subtype("General")
 	) altera_pll_i (
 		.rst	(rst),
-		.outclk	({outclk_2, outclk_1, outclk_0}),
+		.outclk	({outclk_3, outclk_2, outclk_1, outclk_0}),
 		.locked	(locked),
 		.fboutclk	( ),
 		.fbclk	(1'b0),

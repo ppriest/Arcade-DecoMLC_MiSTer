@@ -1,6 +1,5 @@
 rtl/video/mlc_video_pkg.sv
 rtl/mlc_ram.sv
-rtl/video/mlc_recip_table.sv
 rtl/video/mlc_fifo.sv
 rtl/video/mlc_sprite_list.sv
 rtl/video/mlc_vram.sv
@@ -13,5 +12,8 @@ rtl/video/mlc_video.sv
 rtl/memory/sdram/sdram.sv
 rtl/memory/sdram_phy.sv
 rtl/memory/sdram_arbiter.sv
+rtl/memory/mlc_async_fifo.sv
+rtl/memory/sdram_port_cdc.sv
+rtl/memory/mlc_port_arbiter.sv
 sim/common/sdram_chip_model_wide.sv
 sim/sprite_tb/tb_sprite.sv

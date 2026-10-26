@@ -59,6 +59,10 @@ Steps for a release:
 
 **Current state:** `releases/Arcade-DecoMLC_20261025.rbf` is the `DecoMLC` build of `41fd4c3`, default seed: worst setup slack 0.365 ns (clk_sys 0.532 ns), 25,922 ALMs (62%), 54 DSPs. On the board its avengrgs attract frame equals MAME frames 1468 and 1469; coin, Start and the mode select work (`debug/hw/rel_attract.png`, `rel_coin.png`, `rel_start.png`). Sound not yet judged by ear; avengrgsj not launched.
 
+`releases/Arcade-DecoMLC156_20261026.rbf` is the `DecoMLC156` build of `f457314`, default seed: worst setup slack 0.260 ns (clk_sys; SDRAM clock 0.358 ns), 27,017 ALMs (64%), 459 of 553 RAM blocks, 51 DSPs; md5 `afee691e5e2ddf814e3879dbb24d0ce0`, the same bytes as `DecoMLC156_30000006.rbf` on the board.
+
+`releases/Arcade-DecoMLC_20261026.rbf` is the `DecoMLC` build of `f457314`, default seed: worst setup slack 0.566 ns (clk_sys; SDRAM clock 0.638 ns), 26,667 ALMs (64%), 446 of 553 RAM blocks, 54 DSPs; md5 `23bd5fb32845968a33c283974a3ba25e`, the same bytes as `DecoMLC_30000009.rbf` on the board, where avengrgs reaches its attract (`debug/hw/avg_30000009_f457314.png`). Its `.mra` files list Test.
+
 ## Submitting the core upstream
 
 From the contribution guidelines (https://github.com/MiSTer-devel/Wiki_MiSTer/wiki/Contributing-a-Core-to-MiSTer-FPGA); check each before asking for a release.

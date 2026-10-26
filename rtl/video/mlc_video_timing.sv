@@ -4,8 +4,10 @@
 // visible (mlc 567), 248 the vblank start where the list is copied (v 545). A line period is
 // 5304 clocks; it starts one pixel clock before the line's first visible pixel, on the clock
 // the counters wrap, so the line buffer has swapped before scan-out reads it. line_start marks
-// that clock and names the line the engine renders during the period: the one after the line
-// about to be displayed.
+// that clock and names the line the engine renders during the period: the line that is
+// starting, as MAME draws a line at its start with the registers as they are then
+// (VIDEO_UPDATE_SCANLINE). The picture is shown a line later: dvpos, vblank and vs count the
+// displayed line, one behind vpos, which stays the game's (the 0x200074 read, the interrupt).
 module mlc_video_timing (
 	input  logic       clk,
 	input  logic       reset,
@@ -13,8 +15,9 @@ module mlc_video_timing (
 	output logic       ce_pix,        // one clock in twelve
 	output logic [8:0] hpos,          // 0..441
 	output logic [8:0] vpos,          // 0..273, MAME's line number
+	output logic [8:0] dvpos,         // the displayed line: vpos - 1
 	output logic       hblank,        // hpos >= 320
-	output logic       vblank,        // not 8..247
+	output logic       vblank,        // dvpos not 8..247
 	output logic       hs,
 	output logic       vs,
 
@@ -51,13 +54,14 @@ module mlc_video_timing (
 	end
 
 	assign hblank = (hpos >= 9'd320);
-	assign vblank = (vpos < 9'd8) || (vpos > 9'd247);
+	assign dvpos  = (vpos == 9'd0) ? VTOTAL[8:0] - 9'd1 : vpos - 9'd1;
+	assign vblank = (dvpos < 9'd8) || (dvpos > 9'd247);
 	assign hs = (hpos >= 9'd360) && (hpos < 9'd392);
-	assign vs = (vpos >= 9'd256) && (vpos < 9'd259);
+	assign vs = (dvpos >= 9'd256) && (dvpos < 9'd259);
 
 	assign line_start    = !reset && wrap;
 	assign vbl_start     = line_start && (next_v == 9'd248);
-	assign render_line   = next_v + 9'd1;
-	assign render_line_v = (next_v >= 9'd7) && (next_v <= 9'd246);
+	assign render_line   = next_v;
+	assign render_line_v = (next_v >= 9'd8) && (next_v <= 9'd247);
 
 endmodule

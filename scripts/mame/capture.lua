@@ -83,6 +83,21 @@ local function note(tbl, base, addr, data, mask)
     end
 end
 
+-- CORE_LINELOG: regions whose writes during the captured frame are logged with the scanline,
+-- read from the driver's scanline register CORE_SCANLINE (hex address), to linelog.txt as
+-- "line offset data mask" (hex): what a game rewrites mid-frame, for the model's per-line state
+local LINELOG = ranges(os.getenv("CORE_LINELOG"))
+local SCANLINE = tonumber(os.getenv("CORE_SCANLINE") or "0", 16)
+local linelog, logging = {}, false
+for _, r in ipairs(LINELOG) do
+    core_subs[#core_subs + 1] = sp:install_write_tap(r.lo, r.hi, "core_log_" .. r.name,
+        guard("log_" .. r.name, function(offset, data, mask)
+            if logging then
+                linelog[#linelog + 1] = string.format("%x %x %x %x", sp:read_u32(SCANLINE) & 0x1ff, offset, data, mask)
+            end
+        end))
+end
+
 local regs = {}
 local WTAP = ranges(os.getenv("CORE_WTAP"))
 for _, r in ipairs(WTAP) do
@@ -93,15 +108,27 @@ for _, r in ipairs(WTAP) do
         end))
 end
 
+-- Dumps are big-endian words whatever the CPU, "as the SH-2 reads them" (render_model.py, the
+-- benches): on a little-endian bus each word's bytes are written most significant first.
 local function read_block(lo, hi)
     local t = {}
-    for a = lo, hi do t[#t + 1] = string.char(sp:read_u8(a)) end
+    if BIG or BYTES == 1 then
+        for a = lo, hi do t[#t + 1] = string.char(sp:read_u8(a)) end
+    else
+        for w = lo, hi, BYTES do
+            for b = BYTES - 1, 0, -1 do t[#t + 1] = string.char(sp:read_u8(w + b)) end
+        end
+    end
     return table.concat(t)
 end
 
 local function dump_sparse(name, tbl, size)
     local t = {}
-    for i = 0, size - 1 do t[i + 1] = string.char(tbl[i] or 0) end
+    for i = 0, size - 1 do
+        local k = i
+        if not BIG and BYTES > 1 then k = i - i % BYTES + (BYTES - 1 - i % BYTES) end   -- big-endian words
+        t[i + 1] = string.char(tbl[k] or 0)
+    end
     wr(name, table.concat(t))
 end
 
@@ -132,6 +159,10 @@ core_subs[#core_subs + 1] = emu.add_machine_frame_notifier(guard("frame", functi
         for _, r in ipairs(ranges(os.getenv("CORE_PREV"))) do
             wr(r.name .. ".bin", read_block(r.lo, r.hi))
         end
+        for _, r in ipairs(WTAP) do
+            dump_sparse("reg_" .. r.name .. "_prev.bin", regs[r.name], r.hi - r.lo + 1)
+        end
+        logging = true
     end
     if n < FRAME then return end
     done = true
@@ -142,6 +173,9 @@ core_subs[#core_subs + 1] = emu.add_machine_frame_notifier(guard("frame", functi
     for _, r in ipairs(WTAP) do
         dump_sparse("reg_" .. r.name .. ".bin", regs[r.name], r.hi - r.lo + 1)
     end
+
+    logging = false
+    if #LINELOG > 0 then wr("linelog.txt", table.concat(linelog, string.char(10)) .. string.char(10)) end
 
     scr:snapshot(OUT .. "/reference.png")
 

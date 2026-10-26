@@ -39,43 +39,71 @@ SCREEN_W, SCREEN_H = 320, 240
 VIS_TOP = 8                      # set_visarea rows 8-247 (deco_mlc.cpp:567)
 VRAM_TOP = 0x1DC00               # byte offset of the DMA'd top of VRAM (0x29dc00)
 
-# gfx_layout spritelayout_4bpp (deco_mlc.cpp:482-492): 16x16, planes at RGN_FRAC(1,2)+16,
-# RGN_FRAC(1,2)+0, 16, 0 (the first plane listed is the pen's MSB), x bit offsets 15..0, rows 32
-# bits apart, 512 bits a tile. MAME reads bits MSB-first within a byte.
-GFX1_BYTES = 0x1800000
-HALF = GFX1_BYTES // 2
-ELEMENTS = HALF // 64            # gfx->elements(): 196,608 tiles
+# The gfx_layouts (deco_mlc.cpp 482-528) as (planes as (numerator, denominator, bit) from the
+# pen's MSB down, row stride in bits, tile stride in bits, the fraction of the region one tile
+# set fills); x bit offsets are 15..0 in every one. MAME reads bits MSB-first within a byte.
+# The machine config picks one (mlc 579-640): avengrgs 4bpp, mlc_5bpp 5bpp, mlc_6bpp and
+# stadhr96 6bpp, acchi its own.
+LAYOUTS = {
+    "4bpp":  ([(1, 2, 16), (1, 2, 0), (0, 1, 16), (0, 1, 0)], 32, 512, 2),
+    "5bpp":  ([(2, 3, 0), (1, 3, 16), (1, 3, 0), (0, 1, 16), (0, 1, 0)], 32, 512, 3),
+    "6bpp":  ([(2, 3, 16), (2, 3, 0), (1, 3, 16), (1, 3, 0), (0, 1, 16), (0, 1, 0)], 32, 512, 3),
+    "acchi": ([(0, 5, 0), (1, 5, 0), (2, 5, 0), (3, 5, 0), (4, 5, 0)], 16, 256, 5),
+}
+MACHINE_LAYOUT = {"avengrgs": "4bpp", "mlc": "4bpp", "mlc_5bpp": "5bpp", "mlc_6bpp": "6bpp",
+                  "stadhr96": "6bpp", "acchi": "acchi"}
+GFX1_BYTES = 0x1800000           # avengrgs; other sets' regions differ (their gfx1.bin)
+
+
+def set_layout(set_name):
+    """The set's gfx_layout name, from its GAME line's machine config."""
+    sys.path.insert(0, str(REPO / "scripts"))
+    import build_mra
+    text = build_mra.DRIVER.read_text(encoding="utf-8", errors="replace")
+    return MACHINE_LAYOUT[build_mra.game_info(text, set_name)["machine"]]
+
+
+def set_rot(set_name):
+    """The GAME line's ROTnnn."""
+    sys.path.insert(0, str(REPO / "scripts"))
+    import build_mra
+    text = build_mra.DRIVER.read_text(encoding="utf-8", errors="replace")
+    return build_mra.game_info(text, set_name)["rot"]
 
 
 class Gfx:
     """Tile rows decoded as MAME's gfx_element decodes them, cached per (tile, row)."""
 
-    def __init__(self, gfx1):
-        assert len(gfx1) == GFX1_BYTES, f"gfx1 image is {len(gfx1):#x} bytes, region is {GFX1_BYTES:#x}"
+    def __init__(self, gfx1, layout="4bpp"):
         self.rom = gfx1
+        self.layout = layout
+        planes, self.ystride, self.tstride, frac = LAYOUTS[layout]
+        bits = len(gfx1) * 8
+        self.planes = [n * bits // d + b for n, d, b in planes]
+        self.nplanes = len(planes)
+        self.elements = bits // frac // self.tstride          # gfx->elements()
+        self.granularity = 1 << self.nplanes
         self.cache = {}
         self.wrapped = 0         # tile codes >= elements(), reduced modulo as MAME does (v 96)
+
+    def bit(self, n):
+        return (self.rom[n >> 3] >> (7 - (n & 7))) & 1
 
     def row(self, tile, r):
         key = (tile, r)
         v = self.cache.get(key)
         if v is not None:
             return v
-        if tile >= ELEMENTS:
+        if tile >= self.elements:
             self.wrapped += 1
-            tile %= ELEMENTS
-        base = tile * 64 + r * 4           # the row's 32-bit group, same offset in each half
-        a = self.rom[base:base + 4]
-        b = self.rom[HALF + base:HALF + base + 4]
+            tile %= self.elements
+        base = tile * self.tstride + r * self.ystride
         pix = [0] * 16
         for x in range(16):
-            bit = 15 - x                   # plane offset 0: pen bit 0 (first half)
-            p0 = (a[bit >> 3] >> (7 - (bit & 7))) & 1
-            bit1 = 16 + 15 - x             # plane offset 16: pen bit 1 (first half)
-            p1 = (a[bit1 >> 3] >> (7 - (bit1 & 7))) & 1
-            p2 = (b[bit >> 3] >> (7 - (bit & 7))) & 1       # RGN_FRAC(1,2)+0: bit 2
-            p3 = (b[bit1 >> 3] >> (7 - (bit1 & 7))) & 1     # RGN_FRAC(1,2)+16: bit 3
-            pix[x] = (p3 << 3) | (p2 << 2) | (p1 << 1) | p0
+            c = 0
+            for po in self.planes:
+                c = (c << 1) | self.bit(po + base + 15 - x)
+            pix[x] = c
         self.cache[key] = pix
         return pix
 
@@ -119,6 +147,33 @@ class Capture:
         self.vram = (d / "vram.bin").read_bytes()         # 128 KB
         self.clip = u32_words((d / "clipram.bin").read_bytes())
         self.irq = u32_words((d / "irqram.bin").read_bytes())
+        # word 1, the alpha word, reads back 0xffffffff (mlc_200004_r); the written value is the
+        # write tap's rebuild, reg_irqregs.bin, where the capture has one
+        reg = d / "reg_irqregs.bin"
+        self.alpha = self.alpha_prev = None
+        if reg.exists():
+            self.alpha = u32_words(reg.read_bytes())[1]
+            self.irq[1] = self.alpha
+            rp = d / "reg_irqregs_prev.bin"
+            self.alpha_prev = u32_words(rp.read_bytes())[1] if rp.exists() else self.alpha
+        # linelog.txt (capture.lua CORE_LINELOG): the IRQ block and clip RAM rewritten mid-frame,
+        # each write with the scanline it was made on. MAME draws line L at L's start, before the
+        # CPU runs in it, so line L sees the writes made on earlier lines; lines 248-255 are the
+        # previous frame's vblank and come first. The state starts from the _prev dumps.
+        self.linelog = None
+        lp, ip, cp = d / "linelog.txt", d / "irqram_prev.bin", d / "clipram_prev.bin"
+        if lp.exists() and ip.exists() and cp.exists():
+            self.linelog = []
+            for ln in lp.read_text().splitlines():
+                f = ln.split()
+                if len(f) == 4:
+                    line, off, data, mask = (int(x, 16) for x in f)
+                    self.linelog.append((line - 256 if line >= 248 else line, off, data, mask))
+            self.irq_prev = u32_words(ip.read_bytes())
+            if self.alpha_prev is not None:
+                self.irq_prev[1] = self.alpha_prev
+            self.clip_prev = u32_words(cp.read_bytes())
+
         self.pal = u16_slots((d / "palette.bin").read_bytes())
         self.pal_prev = self.vram_prev = None
         p = d / "palette_prev.bin"
@@ -137,16 +192,28 @@ class Capture:
             if line.startswith("set "):
                 self.set = line.split()[1]
 
+    def state_at(self, scanline):
+        irq, clip = list(self.irq_prev), list(self.clip_prev)
+        for key, off, data, mask in self.linelog:
+            if key >= scanline:
+                break
+            k = (off & 0x7F) >> 2
+            t = irq if off < 0x200080 else clip
+            t[k] = (t[k] & ~mask | data & mask) & 0xFFFFFFFF
+        return irq, clip
+
 
 class Model:
     def __init__(self, cap, gfx, gfx2, pal_line=12, vram_line=11, parity=None):
         self.cap = cap
         self.gfx = gfx
         self.gfx2 = gfx2
-        # video_start (v 20-29) with a 4bpp gfx: granularity 16, 0x800 / 16 = 0x80 colours
-        self.colour_mask = 0x7F
-        self.shadow_mask = 0x80 | 0x100
-        self.shadow_shift = 11 - 4
+        # video_start (v 20-29): max_color = 0x800 / granularity; the shadow bits are the two above
+        g = gfx.granularity
+        max_color = 0x800 // g
+        self.colour_mask = max_color - 1
+        self.shadow_mask = max_color | (max_color << 1)
+        self.shadow_shift = 11 - (g.bit_length() - 1)
         self.pens_post = pens_from(cap.pal)
         self.pens_pre = pens_from(cap.pal_prev) if cap.pal_prev else self.pens_post
         self.vram_post = cap.vram
@@ -158,6 +225,7 @@ class Model:
         self.pens = self.pens_post
         self.stats = None
         self.trace_line = None
+        self.zoom = "subpixel"
 
     def vram_u32(self, index):
         o = index * 4
@@ -188,7 +256,8 @@ class Model:
             return 0
         src1 = self.gfx.row(code1, srcline)
         src2 = self.gfx.row(code2, srcline) if use8bpp else None
-        pal_base = 16 * (color % 256)     # gfx(0): colorbase 0, 256 colours (deco_mlc.cpp:531)
+        # gfx(0): colorbase 0; colors() is the GFXDECODE_ENTRY count, which equals max_color
+        pal_base = self.gfx.granularity * color
         drawn = 0
         if shadow_mode and alpha_mode:
             for x in range(sx, ex):
@@ -210,6 +279,62 @@ class Model:
                         pri[x] |= 0x80 | shadow_mode
                         drawn += 1
                 x_index += dx
+        return drawn
+
+    # --- the core's zoom (docs/MAME_KLUDGES.md, "Zoom"): one source accumulator per sprite ------
+    # MAME restarts the source column at each tile with its own step (16 << 16) / width. The core
+    # keeps one: the 16.16 step ceil(2^32 / xs) (gfx_element::subpixel_zoom_step,
+    # mamedev/mame#16417) from source 0 at floor(xbase), MAME's start for a sprite's first tile, so
+    # destination pixel floor(xbase) + k samples k * step of the whole sprite, tile bx being its
+    # bx-th 16 columns as drawn, mirrored within the tile when flipped. #16417's subpixel_zoom_span
+    # starts at ceil(xbase) with the phase instead: on avengrgs' half-size text (xbase 0x8000) that
+    # samples the odd columns where MAME samples the even ones.
+    def draw_row_subpixel(self, dest, pri, clip_l, clip_r, code1, code2, color, flipx, pos, bx,
+                          use8bpp, xs, srcline, shadow_mode):
+        if not xs:
+            return 0
+        step = ((1 << 32) + xs - 1) // xs
+        if step > 0x7FFFFFFF:
+            return 0
+        first = pos >> 16                                        # floor
+        phase = 0
+        t0 = bx * 16 * 0x10000
+        t1 = t0 + 16 * 0x10000
+        k0 = -((phase - t0) // step)                             # ceil((t0 - phase) / step)
+        k1 = -((phase - t1) // step)
+        if k1 <= k0:
+            return 0
+        sx = first + k0
+        ex = first + k1                                          # exclusive
+        srcpos = phase + k0 * step - t0
+        lo = max(sx, clip_l)
+        hi = min(ex, clip_r + 1)
+        if hi <= lo:
+            return 0
+        srcpos += (lo - sx) * step
+        alpha_mode = self.cap.irq[1] & 0xC0
+        src1 = self.gfx.row(code1, srcline)
+        src2 = self.gfx.row(code2, srcline) if use8bpp else None
+        pal_base = self.gfx.granularity * color
+        drawn = 0
+        for x in range(lo, hi):
+            col = srcpos >> 16
+            if flipx:
+                col = 15 - col
+            srcpos += step
+            if pri[x] & 0x80:
+                continue
+            c = src1[col]
+            if use8bpp:
+                c = (c << 4) | src2[col]
+            if c == 0:
+                continue
+            if shadow_mode and alpha_mode:
+                pri[x] |= shadow_mode
+            else:
+                dest[x] = pal_base + c
+                pri[x] |= 0x80 | shadow_mode
+                drawn += 1
         return drawn
 
     # --- draw_sprites (v 144-533) -------------------------------------------------------
@@ -400,14 +525,14 @@ class Model:
                     if xs and rw_ and rsx <= clip_r and rsx + rw_ > clip_l:
                         stat["fetch"] += 2 if use8bpp else 1
                         # rows a 16-byte unit (row r of tiles 2k, 2k+1) held per stream serves
-                        ua = ((tile % ELEMENTS) >> 1, srcline)
+                        ua = ((tile % self.gfx.elements) >> 1, srcline)
                         if ua == stat["unitA"]:
                             stat["pairhit"] += 1
                         else:
                             stat["units"] += 1
                         stat["unitA"] = ua
                         if use8bpp:
-                            ub = ((tile2 % ELEMENTS) >> 1, srcline)
+                            ub = ((tile2 % self.gfx.elements) >> 1, srcline)
                             if ub == stat["unitB"]:
                                 stat["pairhit"] += 1
                             else:
@@ -427,9 +552,13 @@ class Model:
                                     stat["units"] += 1
                 if tr:
                     rw = (xs * 16 + (realxbase & 0xFFFF)) >> 16
-                    print(f"   ROW bx {bx} tile {tile % ELEMENTS:x} tile2 {tile2:x} coloff {color_offset} sx {realxbase >> 16} width {rw}")
-                n = self.draw_row(dest, pri, clip_l, clip_r, tile, tile2, color + color_offset,
-                                  fx, realxbase, use8bpp, xs, srcline, shadow_mode)
+                    print(f"   ROW bx {bx} tile {tile % self.gfx.elements:x} tile2 {tile2:x} coloff {color_offset} sx {realxbase >> 16} width {rw}")
+                if self.zoom == "mame":
+                    n = self.draw_row(dest, pri, clip_l, clip_r, tile, tile2, color + color_offset,
+                                      fx, realxbase, use8bpp, xs, srcline, shadow_mode)
+                else:
+                    n = self.draw_row_subpixel(dest, pri, clip_l, clip_r, tile, tile2, color + color_offset,
+                                               fx, xbase, bx, use8bpp, xs, srcline, shadow_mode)
                 if stat is not None:
                     stat["pixels"] += n
             offs += 8
@@ -450,6 +579,8 @@ class Model:
             pri = [0] * SCREEN_W
             stat = {"blocks": 0, "rows": 0, "pixels": 0, "fetch": 0, "holdA": hold[0], "holdB": hold[1],
                     "pairhit": 0, "unitA": unit[0], "unitB": unit[1], "units": 0} if stats else None
+            if self.cap.linelog is not None:
+                self.cap.irq, self.cap.clip = self.cap.state_at(scanline)
             self.draw_line(scanline, dest, pri, stat)
             if stats:
                 hold = (stat["holdA"], stat["holdB"])          # the table holds survive across lines;
@@ -484,6 +615,8 @@ def main():
     ap.add_argument("--parity", type=int, choices=(0, 1), help="override the frame parity for auto-flicker")
     ap.add_argument("--rtl", action="store_true", help="also compare the capture's rtl.rgb (sim/sprite_tb) with MAME")
     ap.add_argument("--flip", action="store_true", help="rtl.rgb was rendered with flip screen: compare with MAME's frame rotated 180 degrees")
+    ap.add_argument("--zoom", choices=("subpixel", "mame"), default="subpixel",
+                    help="the core's one-accumulator zoom (default), or MAME's per-tile restart")
     ap.add_argument("--trace-line", type=int, help="print every hit and row of this scanline (MAME numbering)")
     a = ap.parse_args()
     rc = 0
@@ -493,11 +626,16 @@ def main():
         if cap.set not in roms:
             roms[cap.set] = load_roms(cap.set)
         g1, g2 = roms[cap.set]
-        gfx = Gfx(g1)
+        gfx = Gfx(g1, set_layout(cap.set))
         model = Model(cap, gfx, g2, a.pal_line, a.vram_line, a.parity)
         model.trace_line = a.trace_line
+        model.zoom = a.zoom
         img = model.render(stats=a.stats)
         ref = np.asarray(Image.open(Path(c) / "reference.png").convert("RGB"))
+        if ref.shape[:2] == (SCREEN_W, SCREEN_H):
+            # a ROT90/ROT270 set: MAME's snapshot is the rotated screen; turn it back to the board's
+            rot = set_rot(cap.set)
+            ref = np.ascontiguousarray(np.rot90(ref, 1 if rot == 90 else -1))
         if ref.shape != img.shape:
             print(f"{c}: reference is {ref.shape[1]}x{ref.shape[0]}, model {SCREEN_W}x{SCREEN_H}")
             rc = 1

@@ -1,7 +1,7 @@
 # Phase 1: the sprite engine
 
 The MLC's video is sprites only: `deco_mlc_v.cpp` (v NNN cites a line at mame0289-1527),
-transcribed in `scripts/render_model.py`, which is pixel-identical to MAME on the five captures
+transcribed in `scripts/render_model.py`, which with `--zoom mame` is pixel-identical to MAME on the five captures
 (`docs/ROADMAP.md`, Progress). The RTL under `rtl/video/` is checked against those captures in
 `sim/sprite_tb`. This file is the design: what each block does, the arithmetic, the budget, and
 what is knowingly not MAME.
@@ -33,6 +33,15 @@ walked front to back (LESSONS, "A back-to-front line buffer cannot drop the righ
 | gfx1 | SDRAM `0x0100000`, 24 MB | engine, 16-byte units, two in flight | one unit = the same 16-pixel row of two consecutive tiles (below) |
 | gfx2 | SDRAM `0x1900000`, 512 KB | engine, 16-byte units | index blocks (8 B, half a unit); tile tables (2 B, eight a unit, the last unit held per stream) |
 | line buffers | `mlc_line_buffer`, 2 x 320 | engine write, scan-out read | pen index in BRAM; written and shadow flags in registers, cleared in one clock at the swap |
+
+**The deeper layouts (DecoMLC156).** 5bpp (hoops), 6bpp (stadhr96, skullfng) and acchi's own
+5-plane layout keep pen bits 0-3 in the 4bpp unit layout below, in the first 16 MB of the window,
+and pen bits 4-5 in an extra area 16 MB in: a 16-byte unit is row r of tiles 4k..4k+3, 4 bytes
+each, bit 4 from bytes 0-1 and bit 5 from bytes 2-3. A row costs a second unit only when it
+leaves the extra unit's four tiles. `mlc_dl_xform.sv` and `mlc_layout.gfx1_dest` give the mapping
+per layout; `mlc_layout.py --selftest` decodes tile rows from the transformed image against MAME's
+decode, and `sim/download_tb` checks the RTL against it (stadhr96u, hoops96, acchi: every unit).
+The colour granule, the shadow bits and the tile count follow the layout (v 20-29, 96, 262-265).
 
 **gfx1 layout** (`scripts/mlc_layout.py`, `rtl/memory/mlc_dl_xform.sv`). MAME's region keeps a
 tile's two plane pairs `RGN_FRAC(1,2)` = 12 MB apart (mlc 482-492): row r of tile t is bytes
@@ -96,27 +105,30 @@ pathological list of 384 about 3500, under the drawer's worst case and in parall
   table one read, ROM table one granule (held: consecutive tiles read consecutive entries, so a
   granule serves four); `color_offset` from the entry's top nibble in the 12-bit format.
 - `realxbase = xbase + bx * xinc`, accumulated; `sx = realxbase >>> 16`, `frac = realxbase[15:0]`;
-  `width = (xs * 16 + frac) >> 16` (v 56); nothing when `width == 0` or `xs == 0` (v 46, 59).
-- `dx = floor(2^20 / width)` from `mlc_recip_table` (257 entries: `width <= 256` at the raster
-  set's 4x on 4x); `ex = sx + width`.
+  `width = (xs * 16 + frac) >> 16` (v 56), MAME's span `[sx, sx + width)`. It only decides the
+  fetch: a tile more than two pixels right of the window ends the hit, one more than two pixels
+  left of it is pushed as a walk (no unit, nothing written). The accumulator's span is within two
+  pixels of MAME's (the step rounded up by under 2^-16 over at most 256 columns).
+- `S` computes `step = ceil(2^32 / xs)` once per hit with a 33-step bit-serial divider, skipped for
+  xs = 1.0 and when xs equals the previous hit's; a step above 0x7fffffff (xs under 2^-15) or
+  xs = 0 draws nothing (v 46).
 - Unit fetch: the unit holding the row of `tile` (and of `tile2` in 8bpp) unless it is the
   stream's last one (then the emitter's copy serves). Requests go through the engine's two
   arbiter slots, so two are in flight; the answers come back in issue order into the row FIFO,
   the row's descriptor into a four-deep queue. The emitter takes a row from the queue, pops its
   new unit(s) from the FIFO, and then writes pixels. A line's end flushes both, drops the
   answers still in flight and forgets the streams' last units.
-- Pixels, one a clock: `j = 0..width-1`, `src = (j * dx) >> 16` accumulated, screen `x = fx ?
-  ex - 1 - j : sx + j`. This is v 68-76 and v 105-137 exactly: `x_index_base = (width-1)*dx` with
-  `dx` negated gives column `sx+i` the index `((width-1-i)*dx) >> 16`, the same as `j = width-1-i`
-  stepping up, and no screen x is written twice within a row, so the order within a row does not
-  matter. Left and right clipping (v 78-90) is the write condition `clip_l <= x <= clip_r`; the
-  skipped pixels cost their clocks. A pixel is written when the pen is not 0 (v 113, 130; 8bpp:
-  `(c1 << 4) | c2`) and `written[x]` is clear. A shadow entry (`shadow_mode` from colour bits 8:7,
-  v 263, with the alpha word's bits 7:6 set, v 101) only ORs its flags into `flags[x]` where
-  `written[x]` is clear; any other entry writes the pen and ORs its `shadow_mode` into the flags
-  (v 114, 132-133).
-- Adjacent rows abut exactly: `ex(bx) = floor((realxbase + xinc) / 65536) = sx(bx+1)`, by
-  `floor(a/N) + floor((b + a mod N)/N) = floor((a+b)/N)`.
+- Pixels, one a clock, from one source accumulator `s` and one screen x `d` per hit: the hit's
+  first tile sets `s = 0`, `d = floor(xbase)`; each clock samples drawn tile `s >> 20`, column
+  `(s >> 16) & 15` (mirrored when `fx`; R fetched the mirrored tile for that position), then
+  `s += step`, `d += 1`, until `s` leaves the row's tile. A walked tile goes eight pixels a clock
+  while eight fit. Left and right clipping (v 78-90) is the write condition `clip_l <= x <=
+  clip_r`; the skipped pixels cost their clocks. A pixel is written when the pen is not 0 (v 113,
+  130; 8bpp: `(c1 << 4) | c2`) and `written[x]` is clear. A shadow entry (`shadow_mode` from
+  colour bits 8:7, v 263, with the alpha word's bits 7:6 set, v 101) only ORs its flags into
+  `flags[x]` where `written[x]` is clear; any other entry writes the pen and ORs its
+  `shadow_mode` into the flags (v 114, 132-133). MAME restarts each tile at its own
+  `floor(realxbase)` with its own step (`MAME_KLUDGES.md`, "Zoom").
 
 **Pen index** is `16 * (color % 256) + c` (v 95), 12 bits; 8bpp pairs can exceed 2047, which MAME
 reads past its palette. The engine keeps 11 bits (`MAME_KLUDGES.md`).
@@ -162,17 +174,18 @@ is the other limit; "Measured" below has the bench's numbers.
 
 `sim/sprite_tb` on the five captures, a full frame each, on the real memory path (`+SDRAM=1`:
 `sdram_arbiter`, `sdram_phy`, `sdram.sv` at BL8, the command-decoding chip model loaded with the
-32 MB image). Every frame is pixel-identical to MAME's `reference.png`, no line runs over its
+32 MB image). With MAME's zoom every frame was pixel-identical to MAME's `reference.png`; no line runs over its
 5304 clocks, and the units the engine fetches per line equal the model's count on every line
-(`render_model.py --rtl --stats`).
+(`render_model.py --rtl --stats`). With the single zoom accumulator the RTL's pens equal the
+model's on every capture, and the model differs from MAME where zoom is used (`MAME_KLUDGES.md`).
 
 | Capture | units, worst line | clocks, worst line | lines over budget |
 |---|---|---|---|
-| attract1500 | 54 | 1591 | 0 |
-| attract2400 | 137 | 3907 (line 160) | 0 |
-| attract3300 | 65 | 2241 | 0 |
-| play1800 | 132 | 3202 | 0 |
-| play2700 | 140 | 3385 | 0 |
+| attract1500 | 55 | 1585 | 0 |
+| attract2400 | 138 | 4076 (line 160) | 0 |
+| attract3300 | 65 | 2071 | 0 |
+| play1800 | 132 | 3283 | 0 |
+| play2700 | 140 | 3312 | 0 |
 
 On attract2400's line 160 (332 tile rows, 25 blocks): the emitter is busy 2384 clocks (one pixel
 a clock over every row's width, clipped pixels included), the row stage waits 1725 clocks for

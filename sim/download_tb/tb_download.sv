@@ -6,17 +6,21 @@
 // constructions of the SDRAM contents meet here: the .mra's interleaves and the RTL's address
 // transform on one side, the Python layout on the other.
 //
-//   scripts/run_verilator.sh download_tb [+SET=avengrgs] [+BYTES=n]
+//   scripts/run_verilator.sh download_tb [+SET=avengrgs] [+BYTES=n] [+LAYOUT=n +FRAC8=1]
 //
 // +BYTES limits the download to the first n bytes (the comparison follows). RUN FROM THE
 // REPOSITORY ROOT.
 `timescale 1ns/1ps
-module tb_download;
+module tb_download #(
+	parameter bit DE156 = 1'b0     // -GDE156=1: the DE156 program placement (mlc_dl_xform de156)
+);
 	import mlc_video_pkg::*;
 
 	localparam real HALF = 5.9524;          // 84 MHz
 	logic clk = 0;
 	always #(HALF) clk = ~clk;
+	logic clk_sdram = 0;                    // 126 MHz, the controller's
+	always #(3.9683) clk_sdram = ~clk_sdram;
 	logic rst = 1;
 
 	string set = "avengrgs";
@@ -31,7 +35,7 @@ module tb_download;
 	wire   [1:0] SDRAM_BA;
 	wire         SDRAM_nCS, SDRAM_nWE, SDRAM_nRAS, SDRAM_nCAS, SDRAM_DQML, SDRAM_DQMH, SDRAM_CLK, SDRAM_CKE;
 	sdram_chip_model_wide u_chip (
-		.clk, .SDRAM_DQ, .SDRAM_A, .SDRAM_BA, .SDRAM_nCS, .SDRAM_nWE, .SDRAM_nRAS, .SDRAM_nCAS
+		.clk(clk_sdram), .SDRAM_DQ, .SDRAM_A, .SDRAM_BA, .SDRAM_nCS, .SDRAM_nWE, .SDRAM_nRAS, .SDRAM_nCAS
 	);
 
 	// ---- the DUT ----
@@ -44,14 +48,16 @@ module tb_download;
 	logic [127:0] spr_rdata;
 	logic         cpu_rom_valid, ymz_valid, ldr_busy;
 	logic [31:0]  cpu_rom_data;
-	logic [7:0]   ymz_data;
+	logic [127:0] ymz_rdata;
+	logic [1:0]   gfx_layout = 0;        // +LAYOUT: the mod byte's bits 5:4 (scripts/mlc_layout.py set_gfx)
+	logic         gfx_frac8 = 0;
 	logic [7:0]   DDRAM_BURSTCNT, DDRAM_BE;
 	logic [28:0]  DDRAM_ADDR;
 	logic [63:0]  DDRAM_DIN;
 	logic         DDRAM_RD, DDRAM_WE;
 
-	mlc_sdram_top dut (
-		.clk, .reset(rst), .init,
+	mlc_sdram_top #(.CPU_LE(DE156)) dut (
+		.clk, .reset(rst), .clk_sdram, .init,
 		.SDRAM_A, .SDRAM_DQML, .SDRAM_DQMH, .SDRAM_BA, .SDRAM_nCS, .SDRAM_nWE, .SDRAM_nRAS, .SDRAM_nCAS,
 		.SDRAM_CLK, .SDRAM_CKE, .SDRAM_DQ,
 		.ioctl_download, .ioctl_index(16'd0), .ioctl_wr, .ioctl_addr, .ioctl_dout, .ioctl_wait,
@@ -59,7 +65,8 @@ module tb_download;
 		.DDRAM_RD, .DDRAM_DIN, .DDRAM_BE, .DDRAM_WE, .ldr_start(1'b0), .ldr_length(28'd0), .ldr_busy,
 		.spr_req, .spr_addr, .spr_valid, .spr_rdata,
 		.cpu_rom_req(1'b0), .cpu_rom_addr(20'd0), .cpu_rom_valid, .cpu_rom_data,
-		.ymz_req(1'b0), .ymz_addr(23'd0), .ymz_valid, .ymz_data
+		.ymz_req(1'b0), .ymz_addr(26'd0), .ymz_valid, .ymz_rdata,
+		.gfx_layout, .gfx_frac8
 	);
 
 	// ---- the download: one byte per clock while ioctl_wait is low, the write in the same
@@ -93,6 +100,8 @@ module tb_download;
 	initial begin
 		void'($value$plusargs("SET=%s", set));
 		void'($value$plusargs("BYTES=%d", nbytes));
+		begin int lay = 0, f8 = 0; void'($value$plusargs("LAYOUT=%d", lay)); void'($value$plusargs("FRAC8=%d", f8));
+			gfx_layout = 2'(lay); gfx_frac8 = f8 != 0; end
 		fd = $fopen({"debug/", set, "_mra.bin"}, "rb");
 		if (fd == 0) begin $display("cannot open debug/%s_mra.bin (scripts/build_mra.py --image)", set); $finish; end
 		n = $fread(img, fd); $fclose(fd);

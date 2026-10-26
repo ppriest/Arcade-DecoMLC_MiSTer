@@ -19,6 +19,7 @@ module mlc_ymz_mem
 	input  logic         clk,
 	input  logic         reset,
 	input  logic         inval,         // the download: drop every unit
+	input  logic         plain,         // the ROM is not scrambled (acchi, mlc 1078-1084)
 
 	input  logic         ce_in,         // the chip's clock enable, 14 MHz
 	output logic         ce_out,        // ce_in, held off while a read waits
@@ -35,7 +36,7 @@ module mlc_ymz_mem
 );
 	localparam int N = 16;
 
-	wire  [23:0] x       = {ma[23:21], ma[19:0], ma[20]};
+	wire  [23:0] x       = plain ? ma : {ma[23:21], ma[19:0], ma[20]};
 	wire         x_out   = (x >= 24'h600000);
 	wire  [19:0] tag     = x[23:4];
 	wire  [19:0] tag_nx  = tag + 20'd1;

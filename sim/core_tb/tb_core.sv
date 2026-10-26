@@ -13,7 +13,9 @@
 // to debug/core/<set>_audio.raw (int16 stereo); scripts/compare_audio.py --rtl ... --no-gain
 // compares it with MAME. RUN FROM THE REPOSITORY ROOT.
 `timescale 1ns/1ps
-module tb_core;
+module tb_core #(
+	parameter bit DE156 = 1'b0     // -GDE156=1: the DE156 board (stadhr96u and the other ARM sets)
+);
 	import mlc_video_pkg::*;
 
 	localparam real HALF = 5.9524;          // 84 MHz
@@ -21,6 +23,8 @@ module tb_core;
 	always #(HALF) clk = ~clk;
 	logic clk_cpu = 0;                      // 42 MHz, aligned: toggles on clk's rising edges
 	always @(posedge clk) clk_cpu <= ~clk_cpu;
+	logic clk_sdram = 0;                    // 126 MHz, the controller's, unrelated in phase
+	always #(3.9683) clk_sdram = ~clk_sdram;
 	logic rst = 1;
 
 	string set = "avengrgs", save = "";
@@ -35,7 +39,7 @@ module tb_core;
 	wire   [1:0] SDRAM_BA;
 	wire         SDRAM_nCS, SDRAM_nWE, SDRAM_nRAS, SDRAM_nCAS, SDRAM_DQML, SDRAM_DQMH, SDRAM_CLK, SDRAM_CKE;
 	sdram_chip_model_wide u_chip (
-		.clk, .SDRAM_DQ, .SDRAM_A, .SDRAM_BA, .SDRAM_nCS, .SDRAM_nWE, .SDRAM_nRAS, .SDRAM_nCAS
+		.clk(clk_sdram), .SDRAM_DQ, .SDRAM_A, .SDRAM_BA, .SDRAM_nCS, .SDRAM_nWE, .SDRAM_nRAS, .SDRAM_nCAS
 	);
 
 	// ---- the DUT ----
@@ -49,18 +53,21 @@ module tb_core;
 	logic [5:0]   ee_addr = 0;
 	logic [15:0]  ee_din = 0;
 	logic         parity = 0;
+	logic         has146 = 0;             // +HAS146=1: stadhr96's DECO 146
+	logic [1:0]   gfx_layout = 0;         // +LAYOUT=n: the mod byte's bits 5:4
+	logic         gfx_frac8 = 0;          // +FRAC8=1
 	logic         ce_pix, hblank, vblank, hs, vs, vbl_start, line_done, ovr_ev;
 	logic [7:0]   r, g, b, volume;
 	logic [15:0]  snd_l, snd_r;
 
-	mlc_top dut (
-		.clk, .clk_cpu, .reset(rst), .video_reset(rst), .init, .pause(1'b0),
+	mlc_top #(.DE156(DE156)) dut (
+		.clk, .clk_cpu, .clk_sdram, .reset(rst), .video_reset(rst), .init, .pause(1'b0),
 		.SDRAM_A, .SDRAM_DQML, .SDRAM_DQMH, .SDRAM_BA, .SDRAM_nCS, .SDRAM_nWE, .SDRAM_nRAS, .SDRAM_nCAS,
 		.SDRAM_CLK, .SDRAM_CKE, .SDRAM_DQ,
 		.ioctl_download(1'b0), .ioctl_index(16'd0), .ioctl_wr(1'b0), .ioctl_addr(27'd0), .ioctl_dout(8'd0), .ioctl_wait,
 		.DDRAM_BUSY(1'b0), .DDRAM_BURSTCNT, .DDRAM_ADDR, .DDRAM_DOUT(64'd0), .DDRAM_DOUT_READY(1'b0),
 		.DDRAM_RD, .DDRAM_DIN, .DDRAM_BE, .DDRAM_WE, .ldr_start(1'b0), .ldr_length(28'd0), .ldr_busy,
-		.inputs_n, .ee_we, .ee_addr, .ee_din, .flip(1'b0), .hs_addr(17'd0), .hs_din(8'd0), .hs_dout(), .hs_we(1'b0),
+		.inputs_n, .has146, .gfx_layout, .gfx_frac8, .ee_we, .ee_addr, .ee_din, .flip(1'b0), .hs_addr(17'd0), .hs_din(8'd0), .hs_dout(), .hs_we(1'b0),
 		.ce_pix, .r, .g, .b, .hblank, .vblank, .hs, .vs, .vbl_start, .frame_top(), .volume, .snd_l, .snd_r, .line_done, .ovr_ev
 	);
 
@@ -106,7 +113,7 @@ module tb_core;
 			$fwrite(fd_au, "%c%c%c%c", snd_l[7:0], snd_l[15:8], snd_r[7:0], snd_r[15:8]);
 			nsamp <= nsamp + 1;
 		end
-		if (dut.u_core.bstate == dut.u_core.B_YMZ && dut.u_core.y_ph == 2'd0 && dut.u_core.ymz_ce_raw && !dut.u_core.y_rd) nyw <= nyw + 1;
+		if (dut.u_core.bstate == 3'd3 /* B_YMZ */ && dut.u_core.y_ph == 2'd0 && dut.u_core.ymz_ce_raw && !dut.u_core.y_rd) nyw <= nyw + 1;
 		if (dut.u_core.ymz_ce_raw && dut.u_core.ymz_stall) nyst <= nyst + 1;
 	end
 
@@ -143,6 +150,9 @@ module tb_core;
 		void'($value$plusargs("SAVE=%s", save));
 		void'($value$plusargs("TRACE=%d", ntrace));
 		void'($value$plusargs("AUDIO=%d", audio));
+		begin int h146 = 0; void'($value$plusargs("HAS146=%d", h146)); has146 = h146 != 0; end
+		begin int lay = 0, f8 = 0; void'($value$plusargs("LAYOUT=%d", lay)); void'($value$plusargs("FRAC8=%d", f8));
+			gfx_layout = 2'(lay); gfx_frac8 = f8 != 0; end
 		if (audio) fd_au = $fopen({"debug/core/", set, "_audio.raw"}, "wb");
 
 		fd = $fopen({"debug/", set, "_sdram.bin"}, "rb");
@@ -172,7 +182,14 @@ module tb_core;
 		while (nframe < frames) begin
 			@(posedge clk);
 			if (vbl_start) begin
-				if (in_list(save, nframe)) save_frame(nframe);
+				// the picture is shown a line after it is drawn (mlc_video_timing): line 247 is on
+				// screen during line 248, so the frame is saved at the next line start
+				if (in_list(save, nframe)) begin
+					@(posedge clk);
+					while (!dut.u_core.u_video.line_start) @(posedge clk);
+					repeat (24) @(posedge clk);
+					save_frame(nframe);
+				end
 				if (nframe % 50 == 0) $display("frame %0d: irqs %0d, overruns %0d, volume %02x", nframe, nirq, novr, volume);
 				nframe++;
 			end

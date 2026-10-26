@@ -60,7 +60,10 @@ def mame_paths():
 
 
 def regions():
-    return json.loads((LUA_DIR / "regions.json").read_text(encoding="utf-8"))
+    """scripts/mame/regions.json, or the profile CORE_REGIONS names (regions_de156.json for the
+    DE156 sets)."""
+    name = os.environ.get("CORE_REGIONS", "regions.json")
+    return json.loads((LUA_DIR / name).read_text(encoding="utf-8"))
 
 
 def spec(table, names=None):
@@ -211,6 +214,7 @@ def main():
                CORE_OUT=out.as_posix(), CORE_FRAME=str(a.frame),
                CORE_READ=spec(r.get("read", {})), CORE_WTAP=spec(r.get("wtap", {})),
                CORE_PREV=spec(r.get("prev", {})),
+               CORE_LINELOG=spec(r.get("linelog", {})), CORE_SCANLINE=r.get("scanline", "0").replace("0x", ""),
                CORE_COIN=str(a.coin), **{"CORE_IN_" + k.upper(): v for k, v in r.get("inputs", {}).items()})
     print(f"{a.set} frame {a.frame} -> {out}")
     p = subprocess.run(cmd, cwd=mame_dir, env=env, capture_output=True, text=True, **NO_WINDOW)

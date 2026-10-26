@@ -1,15 +1,21 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// The SDRAM backend: one chip (rtl/memory/sdram/sdram.sv at burst 8, 16-byte units), its three
-// ports behind req/valid phys. Port 0: the sprite engine's two slots and the ROM download's
+// The SDRAM backend: one chip (rtl/memory/sdram/sdram.sv at burst 8, 16-byte units) on its own
+// 126 MHz clock, its three ports reached from the 84 MHz side through sdram_port_cdc's queues
+// (requests in, answers back, in order) with mlc_port_arbiter keeping each port's clients'
+// reads in flight, so the controller runs units back to back. Port 0: the sprite engine's two slots and the ROM download's
 // writes. Port 1: the SH-2's program ROM through a 32-bit bridge (one unit is a cache line).
 // Port 2: the YMZ280B's samples, 16-byte units for its unit buffer (rtl/sound/mlc_ymz_mem.sv).
 // The image arrives as MAME's regions at scripts/mlc_layout.py's bases, by ioctl bytes or by
 // the DDR3 copy (rom_loader); both pass mlc_dl_xform, which moves gfx1 into its unit layout.
 module mlc_sdram_top
 	import mlc_video_pkg::*;
+#(
+	parameter bit CPU_LE = 1'b0       // the program as the region's little-endian words (the DE156)
+)
 (
 	input  logic         clk,
 	input  logic         reset,
+	input  logic         clk_sdram,       // 126 MHz, the controller's (the same PLL, constrained as asynchronous)
 	input  logic         init,
 
 	output logic [12:0]  SDRAM_A,
@@ -62,7 +68,11 @@ module mlc_sdram_top
 	input  logic         ymz_req,
 	input  logic [25:0]  ymz_addr,
 	output logic         ymz_valid,
-	output logic [127:0] ymz_rdata
+	output logic [127:0] ymz_rdata,
+
+	// the gfx1 layout, for the download's transform (mlc_dl_xform)
+	input  logic [1:0]   gfx_layout,
+	input  logic         gfx_frac8
 );
 
 	localparam int GB = 16;
@@ -74,10 +84,18 @@ module mlc_sdram_top
 	logic [8*GB-1:0]  p0_dout, p1_dout, p2_dout;
 	logic             p0_req, p1_req, p2_req, p0_ack, p1_ack, p2_ack;
 
-	sdram #(.BL8(1), .RFS_CYCLES(655)) u_sdram (   // 655 / 84 MHz = 7.80 us
+	// clk_sdram's reset and init: two registers each
+	logic [1:0] rst_s, init_s;
+	always_ff @(posedge clk_sdram) begin
+		rst_s  <= {rst_s[0], reset};
+		init_s <= {init_s[0], init};
+	end
+	wire reset_sdram = rst_s[1];
+
+	sdram #(.BL8(1), .RFS_CYCLES(980), .RCD(3), .CL(3)) u_sdram (   // 980 / 126 MHz = 7.78 us
 		.SDRAM_DQ, .SDRAM_A, .SDRAM_DQML, .SDRAM_DQMH, .SDRAM_BA, .SDRAM_nCS, .SDRAM_nWE,
 		.SDRAM_nRAS, .SDRAM_nCAS, .SDRAM_CLK, .SDRAM_CKE,
-		.init, .clk,
+		.init(init_s[1]), .clk(clk_sdram),
 		.addr0(p0_addr), .wrl0(p0_wrl), .wrh0(p0_wrh), .din0(p0_din), .dout0(p0_dout), .req0(p0_req), .ack0(p0_ack),
 		.addr1(p1_addr), .wrl1(p1_wrl), .wrh1(p1_wrh), .din1(p1_din), .dout1(p1_dout), .req1(p1_req), .ack1(p1_ack),
 		.addr2(p2_addr), .wrl2(p2_wrl), .wrh2(p2_wrh), .din2(p2_din), .dout2(p2_dout), .req2(p2_req), .ack2(p2_ack)
@@ -89,8 +107,8 @@ module mlc_sdram_top
 	logic [15:0]      a0_wdata;
 	logic [8*GB-1:0]  a0_rdata;
 
-	sdram_phy #(.GB(GB)) u_phy0 (
-		.clk, .reset,
+	sdram_port_cdc #(.GB(GB)) u_phy0 (
+		.clk, .reset, .clk_sdram, .reset_sdram,
 		.port_addr(p0_addr), .port_wrl(p0_wrl), .port_wrh(p0_wrh), .port_din(p0_din), .port_dout(p0_dout),
 		.port_req(p0_req), .port_ack(p0_ack),
 		.req(a0_req), .we(a0_we), .we16(a0_we16), .addr(a0_addr), .wdata(a0_wdata),
@@ -101,7 +119,7 @@ module mlc_sdram_top
 	logic [25:0]  dl_addr;
 	logic [15:0]  dl_data;
 
-	sdram_arbiter #(.N(2), .GB(GB)) u_arb0 (
+	mlc_port_arbiter #(.N(2), .GB(GB)) u_arb0 (
 		.clk, .reset,
 		.phy_req(a0_req), .phy_we(a0_we), .phy_we16(a0_we16), .phy_addr(a0_addr), .phy_wdata(a0_wdata),
 		.phy_busy(a0_busy), .phy_valid(a0_valid), .phy_rdata(a0_rdata),
@@ -118,42 +136,52 @@ module mlc_sdram_top
 	logic [8*GB-1:0]  c1_rdata;
 	logic [31:0]      cpu_rom_le;
 
-	sdram_phy #(.GB(GB)) u_phy1 (
-		.clk, .reset,
+	sdram_port_cdc #(.GB(GB)) u_phy1 (
+		.clk, .reset, .clk_sdram, .reset_sdram,
 		.port_addr(p1_addr), .port_wrl(p1_wrl), .port_wrh(p1_wrh), .port_din(p1_din), .port_dout(p1_dout),
 		.port_req(p1_req), .port_ack(p1_ack),
 		.req(a1_req), .we(1'b0), .we16(1'b0), .addr(a1_addr), .wdata(16'd0),
 		.busy(a1_busy), .valid(a1_valid), .rdata(a1_rdata)
 	);
-	sdram_arbiter #(.N(1), .GB(GB)) u_arb1 (
+	mlc_port_arbiter #(.N(1), .GB(GB)) u_arb1 (
 		.clk, .reset,
 		.phy_req(a1_req), .phy_we(), .phy_we16(), .phy_addr(a1_addr), .phy_wdata(),
 		.phy_busy(a1_busy), .phy_valid(a1_valid), .phy_rdata(a1_rdata),
 		.c_req(c1_req), .c_addr(c1_addr), .c_valid(c1_valid), .c_rdata(c1_rdata),
 		.dl_req(1'b0), .dl_addr('0), .dl_data('0), .dl_we16(1'b0), .dl_busy()
 	);
-	// the bridge packs little-endian words; the SH-2's region is big-endian: byte 0 is the MSB
-	sdram_narrow_bridge #(.WORD_BYTES(4), .GB(GB)) u_cpu_bridge (
-		.clk, .reset, .inval(ioctl_download || ldr_busy),
-		.req(cpu_rom_req), .addr(MAINCPU_BASE + {6'd0, cpu_rom_addr}),
-		.valid(cpu_rom_valid), .data(cpu_rom_le),
-		.g_req(c1_req), .g_addr(c1_addr), .g_valid(c1_valid), .g_data(c1_rdata)
-	);
-	assign cpu_rom_data = {cpu_rom_le[7:0], cpu_rom_le[15:8], cpu_rom_le[23:16], cpu_rom_le[31:24]};
+	// the bridge packs little-endian words; the SH-2's region is big-endian: byte 0 is the MSB.
+	// The DE156 has no cache of its own here: an 8 KB one in front of the port (mlc_rom_cache)
+	generate if (CPU_LE) begin : g_rom_cache
+		mlc_rom_cache #(.LINES(512)) u_cpu_cache (
+			.clk, .reset, .inval(ioctl_download || ldr_busy),
+			.req(cpu_rom_req), .addr(MAINCPU_BASE + {6'd0, cpu_rom_addr}),
+			.valid(cpu_rom_valid), .data(cpu_rom_le),
+			.g_req(c1_req), .g_addr(c1_addr), .g_valid(c1_valid), .g_data(c1_rdata)
+		);
+	end else begin : g_rom_bridge
+		sdram_narrow_bridge #(.WORD_BYTES(4), .GB(GB)) u_cpu_bridge (
+			.clk, .reset, .inval(ioctl_download || ldr_busy),
+			.req(cpu_rom_req), .addr(MAINCPU_BASE + {6'd0, cpu_rom_addr}),
+			.valid(cpu_rom_valid), .data(cpu_rom_le),
+			.g_req(c1_req), .g_addr(c1_addr), .g_valid(c1_valid), .g_data(c1_rdata)
+		);
+	end endgenerate
+	assign cpu_rom_data = CPU_LE ? cpu_rom_le : {cpu_rom_le[7:0], cpu_rom_le[15:8], cpu_rom_le[23:16], cpu_rom_le[31:24]};
 
 	// ---- port 2: the YMZ280B's samples ----
 	logic             a2_req, a2_busy, a2_valid;
 	logic [25:0]      a2_addr;
 	logic [8*GB-1:0]  a2_rdata;
 
-	sdram_phy #(.GB(GB)) u_phy2 (
-		.clk, .reset,
+	sdram_port_cdc #(.GB(GB)) u_phy2 (
+		.clk, .reset, .clk_sdram, .reset_sdram,
 		.port_addr(p2_addr), .port_wrl(p2_wrl), .port_wrh(p2_wrh), .port_din(p2_din), .port_dout(p2_dout),
 		.port_req(p2_req), .port_ack(p2_ack),
 		.req(a2_req), .we(1'b0), .we16(1'b0), .addr(a2_addr), .wdata(16'd0),
 		.busy(a2_busy), .valid(a2_valid), .rdata(a2_rdata)
 	);
-	sdram_arbiter #(.N(1), .GB(GB)) u_arb2 (
+	mlc_port_arbiter #(.N(1), .GB(GB)) u_arb2 (
 		.clk, .reset,
 		.phy_req(a2_req), .phy_we(), .phy_we16(), .phy_addr(a2_addr), .phy_wdata(),
 		.phy_busy(a2_busy), .phy_valid(a2_valid), .phy_rdata(a2_rdata),
@@ -163,7 +191,7 @@ module mlc_sdram_top
 
 	// ---- the download: ioctl bytes, or the DDR3 copy; gfx1 moved into its unit layout ----
 	logic [25:0]  io_xf_addr;
-	mlc_dl_xform u_xf_io (.in_addr(ioctl_addr[25:0]), .out_addr(io_xf_addr));
+	mlc_dl_xform u_xf_io (.layout(gfx_layout), .frac8(gfx_frac8), .de156(CPU_LE), .in_addr(ioctl_addr[25:0]), .out_addr(io_xf_addr));
 
 	logic         io_req, io_we16, io_busy;
 	logic [25:0]  io_addr;
@@ -187,7 +215,7 @@ module mlc_sdram_top
 		.DDRAM_BUSY, .DDRAM_BURSTCNT, .DDRAM_ADDR, .DDRAM_DOUT, .DDRAM_DOUT_READY, .DDRAM_RD, .DDRAM_DIN, .DDRAM_BE, .DDRAM_WE,
 		.req(ddr_req), .we(1'b0), .addr(ddr_addr), .wdata(8'd0), .busy(ddr_busy), .valid(ddr_valid), .rdata(ddr_rdata)
 	);
-	mlc_dl_xform u_xf_ld (.in_addr(raw_addr), .out_addr(xf_addr));
+	mlc_dl_xform u_xf_ld (.layout(gfx_layout), .frac8(gfx_frac8), .de156(CPU_LE), .in_addr(raw_addr), .out_addr(xf_addr));
 	rom_loader u_loader (
 		.clk, .reset, .length(ldr_length), .start(ldr_start), .busy(ldr_busy),
 		.ddr_req, .ddr_addr, .ddr_busy, .ddr_valid, .ddr_rdata,

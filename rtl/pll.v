@@ -11,6 +11,7 @@ module pll (
 		output wire  outclk_0, // outclk0.clk  clk_sys 84 MHz
 		output wire  outclk_1, // outclk1.clk  SDRAM_CLK, shifted
 		output wire  outclk_2, // outclk2.clk  clk_cpu 42 MHz
+		output wire  outclk_3, // outclk3.clk  clk_sdram 126 MHz
 		output wire  locked    //  locked.export
 	);
 
@@ -20,6 +21,7 @@ module pll (
 		.outclk_0 (outclk_0), // outclk0.clk
 		.outclk_1 (outclk_1), // outclk1.clk
 		.outclk_2 (outclk_2), // outclk2.clk
+		.outclk_3 (outclk_3), // outclk3.clk
 		.locked   (locked)    //  locked.export
 	);
 

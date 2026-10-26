@@ -16,6 +16,7 @@ module mlc_sprite_scan
 	input  logic         line_start,
 	input  logic         line_valid,       // a visible line follows line_start
 	input  logic [8:0]   scanline,         // MAME's number, 8..247
+	input  logic [1:0]   layout,           // gfx_layout: 0 4bpp, 1 5bpp, 2 6bpp, 3 acchi (mlc_video_pkg)
 	input  logic         parity,
 
 	// candidate and entry ports (mlc_sprite_list), one-clock reads
@@ -219,8 +220,13 @@ module mlc_sprite_scan
 						ras_mode <= e_w1[10];
 						ras_sel  <= e_w1[8:7];
 						clipper  <= {e_w1[11], e_w1[8], e_w1[9]};   // v 245-251
-						color    <= e_w1[6:0];
-						shadow   <= {1'b0, e_w1[7]};                 // v 263: (color & 0x180) >> 7
+						// v 263-265: the two bits above the colour are the shadow mode; the colour has
+						// 0x800 / granularity values (video_start, v 20-29)
+						case (layout)
+							L_6BPP: begin color <= {2'b0, e_w1[4:0]}; shadow <= e_w1[6:5]; end
+							L_5BPP, L_ACCHI: begin color <= {1'b0, e_w1[5:0]}; shadow <= e_w1[7:6]; end
+							default: begin color <= e_w1[6:0]; shadow <= {1'b0, e_w1[7]}; end   // (color & 0x180) >> 7
+						endcase
 						y0       <= $signed(e_w2[10:0]);
 						x0       <= $signed(e_w3[10:0]);
 						yscale   <= e_w4[9:0];

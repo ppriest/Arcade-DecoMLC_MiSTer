@@ -28,6 +28,10 @@ module sdram #(
 	// DecoMLC local change (PROVENANCE.md): clocks between refreshes, 7.8125 us at clk; 670 is
 	// the Fuuki value for 85.9 MHz
 	parameter RFS_CYCLES = 670,
+	// DecoMLC local change (PROVENANCE.md): tRCD and CAS latency in clocks, upstream's 2 and 2
+	// at 85 MHz; 3 and 3 at 126 MHz (tRCD 20 ns; CL 2 is not specified that fast for every chip)
+	parameter RCD = 2,
+	parameter CL  = 2,
 	parameter GB  = BL8 ? 16 : 8   // granule bytes, derived: never override
 ) (
 	// interface to the MT48LC16M16 chip
@@ -87,11 +91,11 @@ assign SDRAM_nCS = 0;
 assign SDRAM_CKE = 1;
 assign {SDRAM_DQMH,SDRAM_DQML} = SDRAM_A[12:11];
 
-localparam RASCAS_DELAY   = 3'd2; // tRCD=20ns -> 2 cycles@85MHz
+localparam RASCAS_DELAY   = 3'(RCD); // tRCD=20ns -> 2 cycles@85MHz, 3@126
 localparam BURST_LENGTH   = BL8 ? 3'd3 : 3'd2; // 0=1, 1=2, 2=4, 3=8, 7=full page -- 4 for one 64-bit granule, 8 for 128 (BL8)
 localparam ACCESS_TYPE    = 1'd0; // 0=sequential, 1=interleaved -- sequential: burst returns
                                    // words in ascending address order, matching gfx ROM layout
-localparam CAS_LATENCY    = 3'd2; // 2/3 allowed
+localparam CAS_LATENCY    = 3'(CL); // 2/3 allowed
 localparam OP_MODE        = 2'd0; // only 0 (standard operation) allowed
 localparam NO_WRITE_BURST = 1'd1; // 0=write burst enabled, 1=only single access write --
                                    // writes stay single-word; only the HPS byte-at-a-time
@@ -101,18 +105,18 @@ localparam MODE = { 3'b000, NO_WRITE_BURST, OP_MODE, CAS_LATENCY, ACCESS_TYPE, B
 
 // STATE_LAST now covers 4 read-capture cycles (STATE_READ0..STATE_READ3)
 // after CAS latency elapses, not just 1 -- see PROVENANCE.md.
-localparam STATE_IDLE   = 4'd0;                // state to check the requests
-localparam STATE_START  = STATE_IDLE+4'd1;     // state in which a new command is started
+localparam STATE_IDLE   = 5'd0;  // DecoMLC: five bits, STATE_LAST is 16 at RCD 3, CL 3                // state to check the requests
+localparam STATE_START  = STATE_IDLE+5'd1;     // state in which a new command is started
 localparam STATE_CONT   = STATE_START+RASCAS_DELAY;
 // +2, NOT +1. The +1 is upstream's own STATE_READY=STATE_CONT+CAS_LATENCY+1
 // registration-delay margin (PROVENANCE.md). The second cycle is dq_in: the
 // data bus is now captured ONCE, unconditionally, into a register the I/O
 // cell can hold, and the four lanes are taken from that register a cycle
 // later. See the comment above the lane captures for why.
-localparam STATE_READ0  = STATE_CONT+CAS_LATENCY+4'd2;
-localparam STATE_LAST   = STATE_READ0+4'(NW-1); // last state in cycle: the last lane's capture
+localparam STATE_READ0  = STATE_CONT+CAS_LATENCY+5'd2;
+localparam STATE_LAST   = STATE_READ0+5'(NW-1); // last state in cycle: the last lane's capture
 
-reg  [3:0] state = 4'd0;   // upstream relies on Quartus's zero-power-up default for
+reg  [4:0] state = 5'd0;   // upstream relies on Quartus's zero-power-up default for
                             // FPGA registers (real hardware); explicit here since plain
                             // ModelSim simulation leaves an uninitialized reg X instead,
                             // which would otherwise wedge the whole state machine (state==X
@@ -257,7 +261,7 @@ always @(posedge clk) begin
 	// single uniform completion point -- see PROVENANCE.md for why.
 	// (DecoMLC: the four fixed lanes became NW lanes, STATE_READ0 .. STATE_LAST)
 	for (int i = 0; i < NW - 1; i++)
-		if (state == STATE_READ0 + 4'(i) && ram_req && !we) dout[16*i +: 16] <= dq_in;
+		if (state == STATE_READ0 + 5'(i) && ram_req && !we) dout[16*i +: 16] <= dq_in;
 	if (state == STATE_LAST && ram_req) begin
 		if (!we) dout[16*(NW-1) +: 16] <= dq_in;
 		active <= 0;
@@ -268,7 +272,7 @@ always @(posedge clk) begin
 	end
 
 	if(mode != MODE_NORMAL || state != STATE_IDLE || reset) begin
-		state <= state + 4'd1;
+		state <= state + 5'd1;
 		if(state == STATE_LAST) state <= STATE_IDLE;
 	end
 end

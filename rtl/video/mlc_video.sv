@@ -31,6 +31,8 @@ module mlc_video
 
 	input  logic         parity,          // frame parity for auto-flicker
 	input  logic         flip,            // flip screen: the frame rotated 180 degrees, latched at vblank
+	input  logic [1:0]   gfx_layout,      // the set's gfx_layout (mlc_video_pkg L_*; the .mra mod byte)
+	input  logic         gfx_frac8,       // 5bpp/6bpp: a third of gfx1 is 8 MB (stadhr96), else 4 MB
 
 	// SDRAM: two arbiter clients (mlc_sprite_engine), 16-byte units
 	output logic [1:0]   mem_req,
@@ -59,10 +61,10 @@ module mlc_video
 );
 
 	// ---- timing ----
-	logic [8:0] hpos;
+	logic [8:0] hpos, dvpos;
 	assign hpos_zero = (hpos == 9'd0);
 	mlc_video_timing u_timing (
-		.clk, .reset(video_reset), .ce_pix, .hpos, .vpos, .hblank, .vblank, .hs, .vs,
+		.clk, .reset(video_reset), .ce_pix, .hpos, .vpos, .dvpos, .hblank, .vblank, .hs, .vs,
 		.line_start, .render_line_v(line_valid), .render_line, .vbl_start
 	);
 
@@ -118,6 +120,18 @@ module mlc_video
 		end
 	end
 
+	// the copy a line is drawn with: the registers as they are at the line's start (MAME draws a
+	// line at its start; stadhr96 rewrites the raster words on every other line)
+	logic [79:0] clip_min_y_l, clip_max_y_l, clip_min_x_l, clip_max_x_l;
+	logic [32:0] ras_y_l, ras_x_l;
+	logic [29:0] ras_s_l;
+	logic        alpha_on_l;
+	always_ff @(posedge clk) if (line_start) begin
+		clip_min_y_l <= clip_min_y; clip_max_y_l <= clip_max_y;
+		clip_min_x_l <= clip_min_x; clip_max_x_l <= clip_max_x;
+		ras_y_l <= ras_y; ras_x_l <= ras_x; ras_s_l <= ras_s; alpha_on_l <= alpha_on;
+	end
+
 	// ---- list ----
 	logic [8:0]   cand_addr, ent_addr;
 	logic [9:0]   cand_data, cand_count;
@@ -149,8 +163,10 @@ module mlc_video
 	logic [1:0]   rflags;
 
 	mlc_sprite_engine u_engine (
-		.clk, .reset, .line_start, .line_valid, .scanline(scan_line), .parity, .alpha_on,
-		.clip_min_y, .clip_max_y, .clip_min_x, .clip_max_x, .ras_y, .ras_x, .ras_s,
+		.clk, .reset, .line_start, .line_valid, .scanline(scan_line), .layout(gfx_layout), .tiles128k(gfx_frac8 || gfx_layout == L_ACCHI),
+		.parity, .alpha_on(alpha_on_l),
+		.clip_min_y(clip_min_y_l), .clip_max_y(clip_max_y_l), .clip_min_x(clip_min_x_l), .clip_max_x(clip_max_x_l),
+		.ras_y(ras_y_l), .ras_x(ras_x_l), .ras_s(ras_s_l),
 		.cand_addr, .cand_data, .cand_count, .ent_addr, .ent_data,
 		.vram_rd_addr, .vram_rd_data,
 		.mem_req, .mem_addr, .mem_valid, .mem_rdata,
@@ -193,7 +209,7 @@ module mlc_video
 
 	always_ff @(posedge clk) begin
 		vis_d <= {vis_d[2:0], vis};
-		x_d[0] <= hpos; y_d[0] <= vpos;
+		x_d[0] <= hpos; y_d[0] <= dvpos;
 		for (int i = 1; i < 4; i++) begin x_d[i] <= x_d[i-1]; y_d[i] <= y_d[i-1]; end
 		fl_d <= rflags;
 		pix_valid <= vis_d[1];

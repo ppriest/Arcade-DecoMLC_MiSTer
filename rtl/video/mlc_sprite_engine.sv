@@ -12,6 +12,8 @@ module mlc_sprite_engine
 	input  logic         line_start,
 	input  logic         line_valid,
 	input  logic [8:0]   scanline,
+	input  logic [1:0]   layout,           // gfx_layout (mlc_video_pkg L_*)
+	input  logic         tiles128k,
 	input  logic         parity,
 	input  logic         alpha_on,
 
@@ -63,7 +65,7 @@ module mlc_sprite_engine
 	hit_t         hit_in, hit_out;
 
 	mlc_sprite_scan u_scan (
-		.clk, .reset, .line_start, .line_valid, .scanline, .parity,
+		.clk, .reset, .line_start, .line_valid, .scanline, .layout, .parity,
 		.cand_addr, .cand_data, .cand_count, .ent_addr, .ent_data,
 		.clip_min_y, .clip_max_y, .ras_y, .ras_x, .ras_s,
 		.vr_req(s_vr_req), .vr_addr(s_vr_addr), .vr_ack(s_vr_ack), .vr_data(vram_rd_data),
@@ -86,7 +88,7 @@ module mlc_sprite_engine
 	logic         draw_busy;
 
 	mlc_sprite_draw u_draw (
-		.clk, .reset, .line_start, .alpha_on, .clip_min_x, .clip_max_x,
+		.clk, .reset, .line_start, .layout, .tiles128k, .alpha_on, .clip_min_x, .clip_max_x,
 		.hit_empty, .hit(hit_out), .hit_pop,
 		.vr_req(d_vr_req), .vr_addr(d_vr_addr), .vr_ack(d_vr_ack), .vr_data(vram_rd_data),
 		.tab_req, .tab_addr, .tab_take, .tab_ack, .tab_rdata(mem_rdata),
@@ -115,17 +117,18 @@ module mlc_sprite_engine
 	logic       last_slot;
 	logic [1:0] row_inflight;              // row fetches issued, not yet in the FIFO
 
-	// the row FIFO: four units; a fetch is issued only when its answer will have room
+	// the row FIFO: eight units (a deep 8bpp row takes four); a fetch is issued only when its
+	// answer will have room
 	logic        rf_push, rf_full, rf_empty;
-	logic [2:0]  rf_count;
+	logic [3:0]  rf_count;
 	logic [127:0] rf_din;
-	mlc_fifo #(.W(128), .AW(2)) u_rows (
+	mlc_fifo #(.W(128), .AW(3)) u_rows (
 		.clk, .reset, .flush(line_start),
 		.push(rf_push), .din(rf_din), .full(rf_full),
 		.pop(row_pop), .dout(row_data), .empty(rf_empty), .count(rf_count)
 	);
 	assign row_dv = !rf_empty;
-	wire   row_credit = ({1'b0, rf_count} + {2'b0, row_inflight}) < 4'd4;
+	wire   row_credit = ({1'b0, rf_count} + {3'b0, row_inflight}) < 5'd8;
 
 	wire        want_tab  = tab_req;
 	wire        want_row  = row_req && row_credit && !want_tab;

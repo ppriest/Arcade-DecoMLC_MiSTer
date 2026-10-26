@@ -9,7 +9,12 @@ package mlc_video_pkg;
 	localparam logic [25:0] GFX2_BASE    = 26'h1900000;   // 512 KB, index blocks and tile tables
 	localparam logic [25:0] YMZ_BASE     = 26'h1980000;   // 6 MB of samples
 	localparam logic [25:0] ROM_END      = 26'h1F80000;
-	localparam logic [17:0] GFX1_TILES = 18'h30000;    // gfx->elements(): 196,608
+	localparam logic [17:0] GFX1_TILES = 18'h30000;    // gfx->elements() at 4bpp (avengrgs): 196,608
+	// the gfx_layouts (deco_mlc.cpp 482-528), the .mra mod byte bits 5:4
+	localparam logic [1:0] L_4BPP = 2'd0, L_5BPP = 2'd1, L_6BPP = 2'd2, L_ACCHI = 2'd3;
+	// planes 4-5 of the 5bpp, 6bpp and acchi layouts: a 16-byte unit holds one row of four
+	// tiles, 4 bytes each, 16 MB into the gfx1 window (scripts/mlc_layout.py)
+	localparam logic [25:0] GFX1_EXT     = 26'h1100000;
 
 	localparam int SCREEN_W = 320;
 	localparam int VIS_TOP  = 8;                        // MAME's first visible line (mlc 567)

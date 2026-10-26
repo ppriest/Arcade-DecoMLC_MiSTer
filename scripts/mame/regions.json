@@ -1,127 +1,132 @@
 {
-  "_comment": "Core-specific. The SH7604's view of the MLC, from deco_mlc.cpp avengrgs_map (lines 304-325); the DE156 maps (327-355) are the same addresses without the 0xff000000 mirror. Read by mame_capture.py and write_timing.py. Addresses are hex strings, inclusive. spriteram holds 16-bit words in 32-bit slots (upper half reads 0xffff, lines 254-280). prev: the sprite list the captured frame is drawn from = m_buffered_spriteram, copied at vblank start (deco_mlc_v.cpp:545); the palette and the DMA'd top of VRAM as they were before the frame's line 9-11 DMAC copies, for the frame's first lines. addr_hi 0xffffffff: the trace keeps the full SH-2 address, so the cache-through mirror (0x20000000, driver .mirror(0xff000000)) and the on-chip registers (0xfffffe00-0xffffffff) stay visible. ipl: SR bits 7:4 are the SH-2 interrupt mask. trace.ram: the IRQ block (0x200000-7f) is not RAM: its reads are the toggling vblank bit and the scanline counter, replayed as I/O. trace.internal: the SH7604's on-chip registers, which never reach the external bus and are dropped from MAME's trace before comparing. vectors: the program's code starts at 0x200 (boot trace), so only vectors 0-127 count as interrupt vector reads; the scanline IRQ is auto-vectored to 64 (0x100).",
-  "cpu": ":maincpu",
-  "space": "program",
-  "bus_bytes": 4,
-  "big_endian": true,
-  "mame_args": [
-    "-nodrc"
+ "_comment": "Core-specific. The SH7604's view of the MLC, from deco_mlc.cpp avengrgs_map (lines 304-325); the DE156 maps (327-355) are the same addresses without the 0xff000000 mirror. Read by mame_capture.py and write_timing.py. Addresses are hex strings, inclusive. spriteram holds 16-bit words in 32-bit slots (upper half reads 0xffff, lines 254-280). prev: the sprite list the captured frame is drawn from = m_buffered_spriteram, copied at vblank start (deco_mlc_v.cpp:545); the palette and the DMA'd top of VRAM as they were before the frame's line 9-11 DMAC copies, for the frame's first lines. addr_hi 0xffffffff: the trace keeps the full SH-2 address, so the cache-through mirror (0x20000000, driver .mirror(0xff000000)) and the on-chip registers (0xfffffe00-0xffffffff) stay visible. ipl: SR bits 7:4 are the SH-2 interrupt mask. trace.ram: the IRQ block (0x200000-7f) is not RAM: its reads are the toggling vblank bit and the scanline counter, replayed as I/O. trace.internal: the SH7604's on-chip registers, which never reach the external bus and are dropped from MAME's trace before comparing. vectors: the program's code starts at 0x200 (boot trace), so only vectors 0-127 count as interrupt vector reads; the scanline IRQ is auto-vectored to 64 (0x100). wtap irqregs: the IRQ block as written (rebuilt from writes since power-on, reg_irqregs.bin and _prev): words 0, 1, 28, 29, 31 read back constants or counters, not what was written, and word 1 is the alpha word.",
+ "cpu": ":maincpu",
+ "space": "program",
+ "bus_bytes": 4,
+ "big_endian": true,
+ "mame_args": [
+  "-nodrc"
+ ],
+ "read": {
+  "workram": [
+   "0x100000",
+   "0x11ffff"
   ],
-  "read": {
-    "workram": [
-      "0x100000",
-      "0x11ffff"
-    ],
-    "irqram": [
-      "0x200000",
-      "0x20007f"
-    ],
-    "clipram": [
-      "0x200080",
-      "0x2000ff"
-    ],
-    "spriteram": [
-      "0x204000",
-      "0x206fff"
-    ],
-    "vram": [
-      "0x280000",
-      "0x29ffff"
-    ],
-    "palette": [
-      "0x300000",
-      "0x307fff"
-    ]
-  },
-  "wtap": {},
-  "prev": {
-    "spritebuf": [
-      "0x204000",
-      "0x206fff"
-    ],
-    "palette_prev": [
-      "0x300000",
-      "0x301fff"
-    ],
-    "vramtop_prev": [
-      "0x29dc00",
-      "0x29ffff"
-    ],
-    "clipram_prev": [
-      "0x200080",
-      "0x2000ff"
-    ],
-    "irqram_prev": [
-      "0x200000",
-      "0x20007f"
-    ],
-    "vram_prev": [
-      "0x280000",
-      "0x29ffff"
-    ]
-  },
-  "sweep": [
-    "spriteram",
-    "vram",
-    "clipram",
-    "irqram",
-    "palette"
+  "irqram": [
+   "0x200000",
+   "0x20007f"
   ],
-  "trace": {
-    "addr_hi": "0xffffffff",
-    "io": [
-      "0x400000",
-      "0x6fffff"
-    ],
-    "vectors": [
-      "0x000000",
-      "0x0001ff"
-    ],
-    "internal": [
-      [
-        "0xfffffe00",
-        "0xffffffff"
-      ]
-    ],
-    "irq_pushes": 2,
-    "ipl": {
-      "reg": "SR",
-      "shift": 4,
-      "mask": 15
-    },
-    "rom": [
-      [
-        "0x000000",
-        "0x0fffff"
-      ]
-    ],
-    "ram": [
-      [
-        "0x100000",
-        "0x11ffff"
-      ],
-      [
-        "0x200080",
-        "0x2000ff"
-      ],
-      [
-        "0x204000",
-        "0x206fff"
-      ],
-      [
-        "0x280000",
-        "0x29ffff"
-      ],
-      [
-        "0x300000",
-        "0x307fff"
-      ]
-    ]
+  "clipram": [
+   "0x200080",
+   "0x2000ff"
+  ],
+  "spriteram": [
+   "0x204000",
+   "0x206fff"
+  ],
+  "vram": [
+   "0x280000",
+   "0x29ffff"
+  ],
+  "palette": [
+   "0x300000",
+   "0x307fff"
+  ]
+ },
+ "wtap": {
+  "irqregs": [
+   "0x200000",
+   "0x20007f"
+  ]
+ },
+ "prev": {
+  "spritebuf": [
+   "0x204000",
+   "0x206fff"
+  ],
+  "palette_prev": [
+   "0x300000",
+   "0x301fff"
+  ],
+  "vramtop_prev": [
+   "0x29dc00",
+   "0x29ffff"
+  ],
+  "clipram_prev": [
+   "0x200080",
+   "0x2000ff"
+  ],
+  "irqram_prev": [
+   "0x200000",
+   "0x20007f"
+  ],
+  "vram_prev": [
+   "0x280000",
+   "0x29ffff"
+  ]
+ },
+ "sweep": [
+  "spriteram",
+  "vram",
+  "clipram",
+  "irqram",
+  "palette"
+ ],
+ "trace": {
+  "addr_hi": "0xffffffff",
+  "io": [
+   "0x400000",
+   "0x6fffff"
+  ],
+  "vectors": [
+   "0x000000",
+   "0x0001ff"
+  ],
+  "internal": [
+   [
+    "0xfffffe00",
+    "0xffffffff"
+   ]
+  ],
+  "irq_pushes": 2,
+  "ipl": {
+   "reg": "SR",
+   "shift": 4,
+   "mask": 15
   },
-  "inputs": {
-    "coin": "Coin 1",
-    "start": "1 Player Start",
-    "hold": "P1 Right",
-    "pulse": "P1 Button 1"
-  }
+  "rom": [
+   [
+    "0x000000",
+    "0x0fffff"
+   ]
+  ],
+  "ram": [
+   [
+    "0x100000",
+    "0x11ffff"
+   ],
+   [
+    "0x200080",
+    "0x2000ff"
+   ],
+   [
+    "0x204000",
+    "0x206fff"
+   ],
+   [
+    "0x280000",
+    "0x29ffff"
+   ],
+   [
+    "0x300000",
+    "0x307fff"
+   ]
+  ]
+ },
+ "inputs": {
+  "coin": "Coin 1",
+  "start": "1 Player Start",
+  "hold": "P1 Right",
+  "pulse": "P1 Button 1"
+ }
 }
