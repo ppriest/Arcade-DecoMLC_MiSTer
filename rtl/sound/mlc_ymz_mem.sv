@@ -23,14 +23,14 @@ module mlc_ymz_mem
 
 	input  logic         ce_in,         // the chip's clock enable, 14 MHz
 	output logic         ce_out,        // ce_in, held off while a read waits
-	output logic         stall,
+	output logic         stall,         // a read waits for its unit
 
 	input  logic [23:0]  ma,            // the chip's memory port
 	input  logic         moe_n,
 	output logic [7:0]   mdi,
 
 	output logic         mem_req,       // one-clock pulse; one in flight
-	output logic [25:0]  mem_addr,
+	output logic [25:0]  mem_addr,      // SDRAM byte address of a 16-byte unit
 	input  logic         mem_valid,
 	input  logic [127:0] mem_rdata
 );

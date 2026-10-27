@@ -18,7 +18,7 @@ module emu
 	`include "sys/emu_ports.vh"
 );
 
-///////// Default values for ports not used in this core /////////
+// Ports this core does not use
 
 assign ADC_BUS  = 'Z;
 assign USER_OUT = '1;
@@ -32,15 +32,13 @@ assign HDMI_FREEZE = 0;
 assign HDMI_BLACKOUT = 0;
 assign HDMI_BOB_DEINT = 0;
 
-// Silent until Phase 3 (the YMZ280B)
+// Signed samples from the YMZ280B (mlc_core snd_l, snd_r)
 assign AUDIO_S   = 1;
 assign AUDIO_MIX = status[80:79];
 
 assign LED_DISK = 0;
 assign LED_POWER = 0;
 assign BUTTONS = 0;
-
-//////////////////////////////////////////////////////////////////
 
 `include "build_id.v"
 // The Debug page is shown by the DecoMLC_stp revision only (DEBUG_ISSP), hidden by the release
@@ -148,8 +146,6 @@ hps_io #(.CONF_STR(CONF_STR)) hps_io
 	.ps2_key(ps2_key)
 );
 
-///////////////////////   CLOCKS   ///////////////////////////////
-
 // clk_sys 84 MHz, clk_cpu 42 MHz, clk_sdram 126 MHz and SDRAM_CLK the same shifted (rtl/pll/pll_0002.v;
 // docs/ROADMAP.md, Clocks). The SDRAM_CLK pin is driven from the PLL directly; mlc_top's
 // SDRAM_CLK output is the simulation placeholder.
@@ -172,8 +168,6 @@ assign SDRAM_CLK = clk_sdram_shifted;
 // loader writes SDRAM through the backend).
 wire reset       = RESET | status[0] | buttons[1] | ~pll_locked | ioctl_download | ldr_busy;
 wire video_reset = ~pll_locked;
-
-///////////////////////   INPUTS   ////////////////////////////////
 
 // deco_mlc.cpp INPUT_PORTS_START( mlc ), active low (hence the `~`): P1 up, down, left, right,
 // buttons 1-3, start in bits 0-7; P2 in 8-15; coin 1, 2 at 16, 17; service 1 at 18; test at 19;
@@ -255,7 +249,7 @@ end
 // the OSD or the fake DIP; both together flip twice.
 wire flip_screen = status[49] ^ dip_sw[0];
 
-// ---- MAME hiscore.dat (rtl/hiscore.v) ----
+// MAME hiscore.dat (rtl/hiscore.v)
 // The .mra carries the entry (main RAM 0x108909, 0x4e bytes) as index 3; index 4 is the dump.
 // HS_ADDRESSWIDTH 17: main RAM is 128 KB at 0x100000, so the entry's low 17 bits are the offset.
 wire        hs_configured, hs_pause, hs_write, hs_read;
@@ -290,10 +284,7 @@ hiscore #(
 	.configured(hs_configured)
 );
 
-
-
-///////////////////////   THE BOARD   ////////////////////////////
-
+// The board (rtl/mlc_top.sv)
 wire        ce_pix, hblank, vblank, hsync, vsync, vbl_start, frame_top, line_done, ovr_ev, ldr_busy;
 wire [7:0]  r8, g8, b8, volume;
 
@@ -330,7 +321,7 @@ wire        dbg_rom_valid;
 wire [19:0] dbg_rom_addr;
 wire [31:0] dbg_rom_data;
 
-// ---- the _stp revision's probe (scripts/read_issp.tcl, fields_C) ----
+// The _stp revision's probe (scripts/read_issp.tcl, fields_C)
 wire [111:0] core_dbg;
 wire         dbg_clear;
 `ifdef DEBUG_ISSP
@@ -342,8 +333,8 @@ issp_probe #(.INSTANCE_ID("C"), .PROBE_W(128), .SOURCE_W(8)) u_issp_core (
 	        mod_byte, core_dbg}),
 	.source(issp_src)
 );
-// instance R: the program fetches as the CPU receives them. issp_src_r selects fetch N (0-255
-// after reset); the probe holds N's address and data and the data of fetches 0 and 1
+// Instance R: the program fetches as the CPU receives them. issp_src_r selects fetch N (0-255
+// after reset); the probe holds N's address and data and the data of fetches 0 and 1.
 wire [7:0] issp_src_r;
 reg  [7:0]  r_n;
 reg  [19:0] r_addr;
@@ -366,8 +357,7 @@ issp_probe #(.INSTANCE_ID("R"), .PROBE_W(128), .SOURCE_W(8)) u_issp_rom (
 assign dbg_clear = 1'b0;
 `endif
 
-
-// ---- Fast ROM loading (rtl/memory/rom_loader.sv) ----
+// Fast ROM loading (rtl/memory/rom_loader.sv)
 // The .mra's <rom index="0"> carries address="0x30000000": the HPS puts the image in DDR3 and
 // the core sees ioctl_download assert and deassert with no ioctl_wr for index 0. The copy is
 // started when reset is released after such a download, once per download; an .mra that
@@ -398,8 +388,7 @@ always @(posedge clk_sys) begin
 	end
 end
 
-///////////////////////   VIDEO   ///////////////////////////////
-
+// Video
 // Orientation "Auto" follows the set's own (mod byte bits 2:1: 0 ROT0, 1 ROT90, 2 ROT270); the
 // aspect is 4:3, 3:4 when rotated, whatever the pixel count. ARY 0 means "stretch".
 wire [1:0]  game_rot   = mod_byte[2:1];
@@ -410,7 +399,7 @@ wire [1:0]  ar         = status[122:121];
 wire [11:0] base_arx   = (!ar) ? (rotate_en ? 12'd3 : 12'd4) : 12'({ar} - 2'd1);
 wire [11:0] base_ary   = (!ar) ? (rotate_en ? 12'd4 : 12'd3) : 12'd0;
 
-// ---- CRT Adjust (rtl/video/crt_chain.sv) ----
+// CRT Adjust (rtl/video/crt_chain.sv)
 // Moves the picture inside a line buffer with the sync left native, so a CRT keeps its lock;
 // HDMI follows. H-Size and V-Size act at 15 kHz only. The H-Position list has 97 entries, so its
 // negative half wraps at 97; V-Shift's 64 are two's complement; V-Size's 15 wrap at 15.
@@ -418,7 +407,7 @@ wire crt_adj_on   = status[64];
 wire crt_scale_en = ~(forced_scandoubler | |status[46:44]);
 wire  [6:0] crt_hpos_idx = status[71:65];
 wire signed [8:0] crt_hoffset = (crt_hpos_idx <= 7'd48) ? $signed({2'b00, crt_hpos_idx})
-                                                         : $signed({2'b00, crt_hpos_idx}) - 9'sd97;
+		: $signed({2'b00, crt_hpos_idx}) - 9'sd97;
 wire signed [5:0] crt_voffset  = $signed(status[77:72]);
 wire signed [4:0] crt_hsize    = $signed(status[85:81]);
 wire  [3:0] crt_vsz_idx  = status[89:86];
@@ -493,7 +482,7 @@ video_freak video_freak
 
 assign FB_FORCE_BLANK = 0;
 
-// ---- HDMI rotation through the HPS framebuffer (rtl/video/screen_rotate_two.sv) ----
+// HDMI rotation through the HPS framebuffer (rtl/video/screen_rotate_two.sv)
 // A tap: VGA_* still drive the analog output; this writes a rotated copy into DDR3 for HDMI.
 // It owns DDR3 except while the ROM loader copies (the core in reset, nothing to show); its
 // DDRAM_BUSY is held then so it stalls rather than counting phantom writes.
@@ -531,6 +520,7 @@ assign DDRAM_BE       = ldr_busy ? ldr_DDRAM_BE       : rot_DDRAM_BE;
 assign DDRAM_WE       = ldr_busy ? ldr_DDRAM_WE       : rot_DDRAM_WE;
 assign DDRAM_RD       = ldr_busy ? ldr_DDRAM_RD       : rot_DDRAM_RD;
 
+// LED_USER: a PWM of a slow triangle, so the LED breathes while the core runs
 reg  [26:0] act_cnt;
 always @(posedge clk_sys) act_cnt <= act_cnt + 1'd1;
 assign LED_USER = act_cnt[26] ? act_cnt[25:18] > act_cnt[7:0] : act_cnt[25:18] <= act_cnt[7:0];

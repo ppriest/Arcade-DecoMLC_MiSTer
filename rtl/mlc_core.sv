@@ -4,8 +4,8 @@
 // onto main RAM, the video block's RAMs and registers, the inputs, the 93C45 and the volume
 // byte, the scanline interrupt, the video block, and the YMZ280B with its unit buffer. The
 // program ROM, the sprite units and the sample units come through mlc_sdram_top's ports
-// (rtl/mlc_top.sv). docs/HARDWARE_NOTES.md has every
-// address with its driver line.
+// (rtl/mlc_top.sv). docs/HARDWARE_NOTES.md has every address with its driver line.
+//
 // DE156 = 1 builds the DE156 sets' board instead (DecoMLC156): the Amber ARM in mlc_de156 on the
 // same glue, the program descrambled at fetch (rtl/cpu/de156), the interrupt taken at the ARM's
 // IRQ vector; the maps are the same addresses (mlc 327-356).
@@ -70,8 +70,8 @@ module mlc_core
 
 	output logic [7:0]   volume,          // the master volume byte (0x500000, bits 7:0)
 	output logic [15:0]  snd_l, snd_r,    // signed, after the volume byte (mlc 189-193)
-	output logic         line_done,
-	output logic         ovr_ev,
+	output logic         line_done,       // the sprite engine has nothing left to do for the line
+	output logic         ovr_ev,          // pulse: a line started with the previous one unfinished
 
 	// probe bus for the _stp revision's ISSP (DecoMLC.sv, read_issp.tcl fields_C); counters
 	// saturate, dbg_clear zeroes them
@@ -79,7 +79,7 @@ module mlc_core
 	output logic [111:0] dbg
 );
 
-	// ------------------------------------------------------------------ the CPU: the SH-2 on 42 MHz, or the DE156
+	// The CPU: the SH-2 on 42 MHz, or the DE156
 
 	logic [26:0] A;
 	logic [31:0] cpu_dout, cpu_din;
@@ -122,7 +122,7 @@ module mlc_core
 		);
 	end endgenerate
 
-	// ------------------------------------------------------------------ the bus, 84 MHz
+	// The bus, 84 MHz
 	// The wrapper's request (cache_cs with cache_rd/cache_wr, address, data and lane strobes)
 	// is registered on the 42 MHz side and held until cache_ok; the glue answers with a level
 	// that stays up until the request drops. The board's bus controller decodes A[23:0]; the
@@ -157,9 +157,10 @@ module mlc_core
 	assign frame_top = ce_pix && hpos_zero && (vpos == 9'd0);
 
 	assign cache_ok = served && cache_cs;
-	logic served_d;                                            // the bench's trace: served's rise
+	logic served_d;                                            // served's rise counts an access
 	always_ff @(posedge clk) served_d <= served;
 
+	// the probe's counters: accesses (and the last address), interrupts, ROM fetches, frames
 	logic [31:0] d_nacc;
 	logic [15:0] d_nirq, d_nrom, d_nframe;
 	logic [23:0] d_last;
@@ -182,7 +183,7 @@ module mlc_core
 	logic [31:0] ram_q, ram_qb;
 	wire         ram_we = (bstate == B_IDLE) && cache_cs && !served && cache_wr && is_ram;
 	// SH-2 big-endian: byte offset k of a word is lane 3 - k; the ARM's is lane k
-	wire  [1:0]  hs_lane = DE156 ? hs_addr[1:0] : 2'd3 - hs_addr[1:0];   // little-endian ARM
+	wire  [1:0]  hs_lane = DE156 ? hs_addr[1:0] : 2'd3 - hs_addr[1:0];
 	logic [1:0]  hs_lane_d;
 	always_ff @(posedge clk) hs_lane_d <= hs_lane;
 	assign hs_dout = ram_qb[8*hs_lane_d +: 8];
@@ -199,15 +200,15 @@ module mlc_core
 		end
 	endgenerate
 
-	// the video block's CPU-side ports; reg_we comes a clock after the registers above, with
-	// the merged word
+	// the video block's CPU-side ports; reg_we pulses with reg_word, the merged word, on the
+	// clock irq_ram or clip_ram takes it
 	logic         list_we, vram_we, pal_we, reg_we;
 	logic [31:0]  vram_rdata, reg_word;
 	logic [5:0]   reg_addr_r;
 	logic [15:0]  list_rdata, pal_rdata;
 	logic [8:0]   vpos;
 
-	// ------------------------------------------------------------------ the YMZ280B, 14 MHz
+	// The YMZ280B, 14 MHz
 	// 42 MHz / 3 (mlc 579): 1 in 6 of clk, held by pause and while a sample read waits for its
 	// unit (mlc_ymz_mem)
 	logic        y_a, y_rd, y_cs_n, y_wr_n, y_rd_n;
@@ -435,7 +436,7 @@ module mlc_core
 		for (int k = 0; k < 4; k++) merged[8*k +: 8] = be[k] ? cache_din[8*k +: 8] : old[8*k +: 8];
 	endfunction
 
-	// ------------------------------------------------------------------ the EEPROM, 93C45
+	// The EEPROM, 93C45
 	jt9346 #(.AW(6), .DW(16)) u_eeprom (
 		.rst(reset), .clk(clk),
 		.sclk(ee_port[1]), .sdi(ee_port[0]), .sdo(ee_do), .scs(ee_port[2]),
@@ -443,7 +444,7 @@ module mlc_core
 		.dump_clr(1'b0), .dump_flag()
 	);
 
-	// ------------------------------------------------------------------ video
+	// Video (rtl/video/mlc_video.sv)
 	mlc_video u_video (
 		.clk, .reset, .video_reset,
 		.list_we, .list_addr(a24[13:2]), .list_wdata(cache_din[15:0]), .list_rdata,

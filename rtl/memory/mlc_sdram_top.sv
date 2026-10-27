@@ -2,8 +2,9 @@
 // The SDRAM backend: one chip (rtl/memory/sdram/sdram.sv at burst 8, 16-byte units) on its own
 // 126 MHz clock, its three ports reached from the 84 MHz side through sdram_port_cdc's queues
 // (requests in, answers back, in order) with mlc_port_arbiter keeping each port's clients'
-// reads in flight, so the controller runs units back to back. Port 0: the sprite engine's two slots and the ROM download's
-// writes. Port 1: the SH-2's program ROM through a 32-bit bridge (one unit is a cache line).
+// reads in flight, so the controller runs units back to back. Port 0: the sprite engine's two
+// slots and the ROM download's writes. Port 1: the CPU's program ROM in 32-bit words, through
+// sdram_narrow_bridge (the SH-2) or mlc_rom_cache (the DE156).
 // Port 2: the YMZ280B's samples, 16-byte units for its unit buffer (rtl/sound/mlc_ymz_mem.sv).
 // The image arrives as MAME's regions at scripts/mlc_layout.py's bases, by ioctl bytes or by
 // the DDR3 copy (rom_loader); both pass mlc_dl_xform, which moves gfx1 into its unit layout.
@@ -13,10 +14,10 @@ module mlc_sdram_top
 	parameter bit CPU_LE = 1'b0       // the program as the region's little-endian words (the DE156)
 )
 (
-	input  logic         clk,
-	input  logic         reset,
+	input  logic         clk,             // 84 MHz
+	input  logic         reset,           // clk's (the core's video_reset)
 	input  logic         clk_sdram,       // 126 MHz, the controller's (the same PLL, constrained as asynchronous)
-	input  logic         init,
+	input  logic         init,            // the controller's init (PLL lock)
 
 	output logic [12:0]  SDRAM_A,
 	output logic         SDRAM_DQML,
@@ -58,7 +59,8 @@ module mlc_sdram_top
 	output logic [1:0]   spr_valid,
 	output logic [127:0] spr_rdata,
 
-	// SH-2 program ROM: 32-bit words, big-endian as the region is, byte address in the 1 MB
+	// program ROM: 32-bit words, byte address in the 1 MB; big-endian for the SH-2, the region's
+	// little-endian words with CPU_LE
 	input  logic         cpu_rom_req,     // pulse; hold addr until valid
 	input  logic [19:0]  cpu_rom_addr,
 	output logic         cpu_rom_valid,
@@ -77,7 +79,7 @@ module mlc_sdram_top
 
 	localparam int GB = 16;
 
-	// ---- the chip, three ports ----
+	// the chip, three ports
 	logic [25:1]      p0_addr, p1_addr, p2_addr;
 	logic             p0_wrl, p0_wrh, p1_wrl, p1_wrh, p2_wrl, p2_wrh;
 	logic [15:0]      p0_din, p1_din, p2_din;
@@ -101,7 +103,7 @@ module mlc_sdram_top
 		.addr2(p2_addr), .wrl2(p2_wrl), .wrh2(p2_wrh), .din2(p2_din), .dout2(p2_dout), .req2(p2_req), .ack2(p2_ack)
 	);
 
-	// ---- port 0: sprites and the download writes ----
+	// port 0: sprites and the download writes
 	logic             a0_req, a0_we, a0_we16, a0_busy, a0_valid;
 	logic [25:0]      a0_addr;
 	logic [15:0]      a0_wdata;
@@ -127,7 +129,7 @@ module mlc_sdram_top
 		.dl_req, .dl_addr, .dl_data, .dl_we16, .dl_busy
 	);
 
-	// ---- port 1: the SH-2's program ----
+	// port 1: the CPU's program
 	logic             a1_req, a1_busy, a1_valid;
 	logic [25:0]      a1_addr;
 	logic [8*GB-1:0]  a1_rdata;
@@ -151,7 +153,7 @@ module mlc_sdram_top
 		.dl_req(1'b0), .dl_addr('0), .dl_data('0), .dl_we16(1'b0), .dl_busy()
 	);
 	// the bridge packs little-endian words; the SH-2's region is big-endian: byte 0 is the MSB.
-	// The DE156 has no cache of its own here: an 8 KB one in front of the port (mlc_rom_cache)
+	// The DE156 has no cache of its own here: an 8 KB one in front of the port (mlc_rom_cache).
 	generate if (CPU_LE) begin : g_rom_cache
 		mlc_rom_cache #(.LINES(512)) u_cpu_cache (
 			.clk, .reset, .inval(ioctl_download || ldr_busy),
@@ -169,7 +171,7 @@ module mlc_sdram_top
 	end endgenerate
 	assign cpu_rom_data = CPU_LE ? cpu_rom_le : {cpu_rom_le[7:0], cpu_rom_le[15:8], cpu_rom_le[23:16], cpu_rom_le[31:24]};
 
-	// ---- port 2: the YMZ280B's samples ----
+	// port 2: the YMZ280B's samples
 	logic             a2_req, a2_busy, a2_valid;
 	logic [25:0]      a2_addr;
 	logic [8*GB-1:0]  a2_rdata;
@@ -189,7 +191,7 @@ module mlc_sdram_top
 		.dl_req(1'b0), .dl_addr('0), .dl_data('0), .dl_we16(1'b0), .dl_busy()
 	);
 
-	// ---- the download: ioctl bytes, or the DDR3 copy; gfx1 moved into its unit layout ----
+	// the download: ioctl bytes, or the DDR3 copy; gfx1 moved into its unit layout
 	logic [25:0]  io_xf_addr;
 	mlc_dl_xform u_xf_io (.layout(gfx_layout), .frac8(gfx_frac8), .de156(CPU_LE), .in_addr(ioctl_addr[25:0]), .out_addr(io_xf_addr));
 

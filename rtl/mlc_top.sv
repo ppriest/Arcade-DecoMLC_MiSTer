@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// The MLC board: mlc_core (the SH7604 or, with DE156, the ARM; its bus, the video) on mlc_sdram_top (the program ROM,
-// the sprite units, the samples, the download). What is left above this is the MiSTer
-// framework's glue in DecoMLC.sv: HPS, PLL, inputs, the video output path.
+// The MLC board: mlc_core (the SH7604 or, with DE156, the ARM; its bus, the video) on
+// mlc_sdram_top (the program ROM, the sprite units, the samples, the download). The MiSTer
+// framework's glue is in DecoMLC.sv: HPS, PLL, inputs, the video output path.
 module mlc_top #(
 	parameter bit DE156 = 1'b0
 ) (
-	input  logic         clk,
-	input  logic         clk_cpu,
+	input  logic         clk,             // 84 MHz clk_sys
+	input  logic         clk_cpu,         // 42 MHz, the same PLL
 	input  logic         clk_sdram,       // 126 MHz: the SDRAM controller (mlc_sdram_top)
 	input  logic         reset,           // the game (held through the download)
 	input  logic         video_reset,     // the raster
 	input  logic         init,            // the SDRAM controller's init (PLL lock)
-	input  logic         pause,
+	input  logic         pause,           // holds the CPU
 
 	output logic [12:0]  SDRAM_A,
 	output logic         SDRAM_DQML,
@@ -21,7 +21,7 @@ module mlc_top #(
 	output logic         SDRAM_nWE,
 	output logic         SDRAM_nRAS,
 	output logic         SDRAM_nCAS,
-	output logic         SDRAM_CLK,
+	output logic         SDRAM_CLK,       // simulation only: the pin is driven from the PLL (DecoMLC.sv)
 	output logic         SDRAM_CKE,
 	inout  wire  [15:0]  SDRAM_DQ,
 
@@ -41,18 +41,21 @@ module mlc_top #(
 	output logic [63:0]  DDRAM_DIN,
 	output logic [7:0]   DDRAM_BE,
 	output logic         DDRAM_WE,
+	// fast ROM load, DDR3 to SDRAM (rtl/memory/rom_loader.sv)
 	input  logic         ldr_start,
-	input  logic [27:0]  ldr_length,
+	input  logic [27:0]  ldr_length,      // bytes
 	output logic         ldr_busy,
 
-	input  logic [31:0]  inputs_n,
+	input  logic [31:0]  inputs_n,        // the 0x400000 word, active low
 	input  logic         has146,          // the set has the DECO 146 (the .mra mod byte)
 	input  logic [1:0]   gfx_layout,      // the gfx_layout (the .mra mod byte): the engine and the download
-	input  logic         gfx_frac8,
+	input  logic         gfx_frac8,       // a third of gfx1 is 8 MB (stadhr96)
+	// the factory EEPROM image, 64 words
 	input  logic         ee_we,
 	input  logic [5:0]   ee_addr,
 	input  logic [15:0]  ee_din,
-	input  logic         flip,
+	input  logic         flip,            // flip screen (OSD or the .mra's fake DIP)
+	// hiscore (rtl/hiscore.v): a byte address in main RAM; writes only with the CPU paused
 	input  logic [16:0]  hs_addr,
 	input  logic [7:0]   hs_din,
 	output logic [7:0]   hs_dout,
@@ -63,10 +66,11 @@ module mlc_top #(
 	output logic         hblank, vblank, hs, vs,
 	output logic         vbl_start,
 	output logic         frame_top,
-	output logic [7:0]   volume,
+	output logic [7:0]   volume,          // the master volume byte (0x500000)
 	output logic [15:0]  snd_l, snd_r,   // signed
-	output logic         line_done,
-	output logic         ovr_ev,
+	output logic         line_done,       // the sprite engine has nothing left to do for the line
+	output logic         ovr_ev,          // pulse: a line started with the previous one unfinished
+	// the _stp revision's probe bus (mlc_core)
 	input  logic         dbg_clear,
 	output logic [111:0] dbg,
 	// the program fetches as the CPU receives them, for the _stp probe
@@ -77,9 +81,9 @@ module mlc_top #(
 
 	// The game starts as MAME's does: its reset is released at the first clock of line 0 (MAME
 	// runs the CPU from line 0 of frame 0), and the frame parity for the auto-flicker sprites
-	// (deco_mlc_v.cpp 170) toggles at each vblank from a fixed start. The start value is set by
-	// measurement: an effect sprite MAME draws on even attract frames only showed on the board's
-	// match for odd frames 2805 and then 2377 with a start of 1 (scripts/match_frame.py, debug/hw/).
+	// (deco_mlc_v.cpp 170) toggles at each vblank from a fixed start. The start value is measured:
+	// with a start of 1, an effect sprite MAME draws on even attract frames only matched the
+	// board on odd frames (2805, 2377; scripts/match_frame.py, debug/hw/).
 	logic game_run = 1'b0, parity = 1'b0;
 	wire  game_reset = reset | ~game_run;
 	always_ff @(posedge clk) begin

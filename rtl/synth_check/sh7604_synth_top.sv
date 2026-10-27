@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Standalone synthesis and timing harness for the SH7604 at clk_sys = 84 MHz.
 //
-// Not part of the core build. It answers docs/ROADMAP.md Phase 0 exit criterion 4:
-// does jotego's copy of srg320's SH7604, enabled one clock in four, close timing at
-// 84 MHz on this device and speed grade, and how big is it. The answer decides
-// whether the CPU shares clk_sys or runs on a 42 MHz output of the same PLL.
+// Not part of the core build. It measures whether jotego's copy of srg320's SH7604,
+// enabled one clock in four, closes timing at 84 MHz on this device and speed grade,
+// and its size (docs/ROADMAP.md Phase 0 exit criterion 4). The core runs the CPU on
+// clk_cpu, a 42 MHz output of the same PLL.
 //
 // Shape copied from Arcade-Seta_MiSTer rtl/synth_check/seta_synth_top.sv: inputs
 // come from a free-running pattern register and every output is XOR-reduced onto
@@ -12,15 +12,15 @@
 // The memory side answers every request one clock later with pattern data, which
 // is the jtsh7604 wrapper's zero-wait contract (rtl/cpu/sh7604/README.md).
 //
-// This is a synthesis harness, NOT a simulation model. It executes nothing sensible.
+// A synthesis harness, not a simulation model: the program it runs is noise.
 
 `default_nettype none
 
 module sh7604_synth_top (
-	input  wire  clk,
+	input  wire  clk,      // 84 MHz under test
 	input  wire  rst_n,
-	input  wire  stim,
-	output logic result
+	input  wire  stim,     // feeds the pattern register
+	output logic result    // every CPU output, XOR-reduced
 );
 
 	wire rst = ~rst_n;

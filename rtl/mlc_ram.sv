@@ -2,11 +2,11 @@
 // One block RAM in the form Quartus 17 infers as a single true-dual-port M10K: port A writes
 // and reads one address, port B reads another, each read registered (one clock). Port A returns
 // the new data when it writes (Quartus's TDP template): an old-data read on a written port is
-// not an M10K true-dual-port mode, and Quartus built main RAM as two copies for it once port B
-// had a real address. No client reads the word it writes in the same clock.
-// Wider RAMs with byte enables are built from several of these side by side: a byte-lane write
-// in a loop, or a part-select write into a wide word, left VRAM and main RAM in registers in the
-// first build (docs/LESSONS_LEARNED.md).
+// not an M10K true-dual-port mode, and Quartus duplicates the RAM to provide it. No client reads
+// the word it writes in the same clock.
+// Wider RAMs with byte enables are built from several of these side by side: Quartus 17 builds
+// registers, not M10K, for a byte-lane write in a loop or a part-select write into a wide word
+// (docs/LESSONS_LEARNED.md).
 module mlc_ram #(
 	parameter int W  = 8,
 	parameter int AW = 13

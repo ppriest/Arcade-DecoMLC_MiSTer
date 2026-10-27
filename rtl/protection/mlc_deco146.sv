@@ -22,7 +22,7 @@ module mlc_deco146 (
 
 	input  logic         rd,
 	input  logic         wr,
-	input  logic [10:1]  addr,
+	input  logic [10:1]  addr,            // word address in the 2 KB window
 	input  logic [15:0]  din,
 	input  logic [1:0]   be,
 	output logic [15:0]  dout,
@@ -33,12 +33,12 @@ module mlc_deco146 (
 	localparam logic [7:0]  NAND_PORT = 8'h36;
 	localparam logic [6:0]  BANK_WORD = 7'h3c;      // bankswap_read_addr 0x78, as a word
 
-	// ---- the read table, 1024 x 31 ----
+	// the read table, 1024 entries of 31 bits
 	logic [31:0] table_rom [0:1023];
 	initial $readmemh("rtl/protection/mlc_deco146_table.hex", table_rom);
 	logic [31:0] ent;
 
-	// ---- the RAM: two banks of 128 words, one byte RAM per lane ----
+	// the RAM: two banks of 128 words, one byte RAM per lane
 	logic [7:0]  ram_hi [0:255];
 	logic [7:0]  ram_lo [0:255];
 	initial for (int i = 0; i < 256; i++) begin ram_hi[i] = 8'hff; ram_lo[i] = 8'hff; end

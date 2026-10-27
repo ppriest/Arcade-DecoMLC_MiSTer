@@ -15,6 +15,7 @@ module mlc_port_arbiter #(
 	input  logic clk,
 	input  logic reset,
 
+	// the port (sdram_port_cdc's clk side)
 	output logic         phy_req,
 	output logic         phy_we,
 	output logic         phy_we16,
@@ -24,11 +25,13 @@ module mlc_port_arbiter #(
 	input  logic         phy_valid,
 	input  logic [8*GB-1:0] phy_rdata,
 
+	// the read clients, client k in bits 26k+25:26k of c_addr; c_rdata is shared
 	input  logic [N-1:0]      c_req,
 	input  logic [26*N-1:0]   c_addr,
 	output logic [N-1:0]      c_valid,
 	output logic [8*GB-1:0]   c_rdata,
 
+	// the ROM download's writes
 	input  logic         dl_req,
 	input  logic [25:0]  dl_addr,
 	input  logic [15:0]  dl_data,

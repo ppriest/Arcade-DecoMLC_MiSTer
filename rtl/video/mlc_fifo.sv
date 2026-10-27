@@ -13,7 +13,7 @@ module mlc_fifo #(
 	input  logic          pop,
 	output logic [W-1:0]  dout,
 	output logic          empty,
-	output logic [AW:0]   count
+	output logic [AW:0]   count          // entries held
 );
 
 	logic [W-1:0] mem [0:(1 << AW) - 1];

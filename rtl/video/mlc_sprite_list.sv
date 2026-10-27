@@ -39,7 +39,7 @@ module mlc_sprite_list (
 	output logic [9:0]   cand_count     // valid once busy is low
 );
 
-	// ---- live RAM ----
+	// Live RAM
 	logic [15:0] live [0:3071];
 	logic [11:0] cursor;                // copy: address read this clock
 	logic [15:0] live_q;                // live[cursor] of the previous clock
@@ -61,7 +61,7 @@ module mlc_sprite_list (
 	logic [15:0] hold_d;
 	wire hold_apply = hold_v && !(cursor_d_v && hold_a[2:0] == cursor_d[2:0]);
 
-	// ---- snapshot lanes ----
+	// Snapshot lanes
 	logic [7:0]   snap_we;
 	logic [8:0]   snap_wa [0:7];
 	logic [15:0]  snap_wd [0:7];
@@ -92,7 +92,7 @@ module mlc_sprite_list (
 		end
 	endgenerate
 
-	// ---- candidate build ----
+	// Candidate build
 	logic [8:0]  bi;                    // entry under decision
 	logic [15:0] cur_w0, cur_w1;        // entry bi's words 0 and 1
 	logic [9:0]  ccount;

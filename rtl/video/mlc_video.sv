@@ -51,16 +51,16 @@ module mlc_video
 	// status
 	output logic [8:0]   vpos,            // MAME's line number (the 0x200074 read)
 	output logic         hpos_zero,       // the line's first pixel
-	output logic         vbl_start,
-	output logic         line_start,
-	output logic         line_valid,
-	output logic [8:0]   render_line,
-	output logic         line_done,
-	output logic         ovr_ev,
-	output logic         list_busy
+	output logic         vbl_start,       // the line period is line 248's (list copy)
+	output logic         line_start,      // first clock of a line period
+	output logic         line_valid,      // the period renders a visible line
+	output logic [8:0]   render_line,     // the line rendered in the period, unflipped
+	output logic         line_done,       // level: nothing left to do for the line
+	output logic         ovr_ev,          // pulse: a line period ended with the engine unfinished
+	output logic         list_busy        // the list copy or candidate build is running
 );
 
-	// ---- timing ----
+	// Timing
 	logic [8:0] hpos, dvpos;
 	assign hpos_zero = (hpos == 9'd0);
 	mlc_video_timing u_timing (
@@ -68,9 +68,9 @@ module mlc_video
 		.line_start, .render_line_v(line_valid), .render_line, .vbl_start
 	);
 
-	// ---- flip screen: one mechanism for every output. The engine draws line 255 - L (lines
-	// 8-247 map onto each other) into the buffer as usual and scan-out reads it right to left,
-	// which is the unflipped frame rotated 180 degrees. Latched at vblank so a frame is whole.
+	// Flip screen: one mechanism for every output. The engine draws line 255 - L (lines 8-247
+	// map onto each other) into the buffer as usual and scan-out reads it right to left, which
+	// is the unflipped frame rotated 180 degrees. Latched at vblank so a frame is whole.
 	logic       flip_r;
 	wire  [8:0] scan_line = flip_r ? 9'd255 - render_line : render_line;
 	always_ff @(posedge clk) begin
@@ -78,7 +78,7 @@ module mlc_video
 		else if (vbl_start) flip_r <= flip;
 	end
 
-	// ---- registers ----
+	// Clip and IRQ-block registers
 	logic [79:0] clip_min_y, clip_max_y, clip_min_x, clip_max_x;
 	logic [32:0] ras_y, ras_x;
 	logic [29:0] ras_s;
@@ -132,7 +132,7 @@ module mlc_video
 		ras_y_l <= ras_y; ras_x_l <= ras_x; ras_s_l <= ras_s; alpha_on_l <= alpha_on;
 	end
 
-	// ---- list ----
+	// Sprite list
 	logic [8:0]   cand_addr, ent_addr;
 	logic [9:0]   cand_data, cand_count;
 	logic [127:0] ent_data;
@@ -144,7 +144,7 @@ module mlc_video
 		.ent_addr, .ent_data, .cand_addr, .cand_data, .cand_count
 	);
 
-	// ---- VRAM ----
+	// VRAM
 	logic [12:0]  vram_rd_addr;
 	logic [127:0] vram_rd_data;
 	mlc_vram u_vram (
@@ -152,7 +152,7 @@ module mlc_video
 		.cpu_rdata(vram_rdata), .rd_addr(vram_rd_addr), .rd_data(vram_rd_data)
 	);
 
-	// ---- engine and line buffer ----
+	// Engine and line buffer
 	logic         lb_we, lb_shadow_only;
 	logic [8:0]   lb_x;
 	logic [10:0]  lb_pen;
@@ -180,9 +180,9 @@ module mlc_video
 		.rx(flip_r ? 9'd319 - hpos : hpos), .rpen, .rwritten, .rflags
 	);
 
-	// ---- palette and scan-out: rx at ce_pix, the buffer a clock later, the palette one
-	// after, the colour one after that ----
-	// true dual port: A the CPU's (a read or a write), B the scan-out's
+	// Palette and scan-out: rx at ce_pix, the buffer a clock later, the palette one after, the
+	// colour one after that. The palette is true dual port: A the CPU's (a read or a write), B
+	// the scan-out's.
 	logic [15:0] pal [0:2047];
 	logic [15:0] pal_q;
 	always_ff @(posedge clk) begin

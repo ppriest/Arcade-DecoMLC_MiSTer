@@ -20,8 +20,8 @@
 // (deco156.cpp; rtl/cpu/de156), a linear map on the low 16 bits of the word address. The
 // download stores raw word r at a = AddrScramble^-1(r), so the ARM's consecutive words are
 // consecutive in SDRAM and share a unit; the data descramble, which needs only a, stays at
-// fetch. The inverse: a[i] = ^((r ^ 0x92c6) & m[i]) (derived and checked over every address
-// when it was written).
+// fetch. The inverse: a[i] = ^((r ^ 0x92c6) & m[i]), checked against AddrScramble over every
+// address.
 // A region shorter than the window (5bpp and 6bpp with 4 MB thirds: 12 MB; acchi 20 MB) is
 // followed in the image by the .mra's zero padding up to gfx2; those bytes go to the spare
 // space past the last region (ROM_END), not onto the transformed tiles.
@@ -29,7 +29,7 @@ module mlc_dl_xform
 	import mlc_video_pkg::*;
 (
 	input  logic [1:0]  layout,      // mlc_video_pkg L_*
-	input  logic        frac8,
+	input  logic        frac8,       // a third of gfx1 is 8 MB (stadhr96)
 	input  logic        de156,       // the program is the DE156's (the DecoMLC156 build)
 	input  logic [25:0] in_addr,     // offset in the .mra image
 	output logic [25:0] out_addr     // SDRAM byte address

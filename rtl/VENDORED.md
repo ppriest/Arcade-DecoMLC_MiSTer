@@ -1,7 +1,7 @@
 # Single-file vendored modules — provenance
 
 Copied from `Arcade-DreamWorld_MiSTer` at `233d1f2` (the files last changed there in `de225e3`),
-**untouched**. Each file's header names its author, upstream and licence; the sibling cores'
+untouched except as listed below. Each file's header names its author, upstream and licence; the sibling cores'
 history is the record of their local fixes.
 
 | File | Upstream | Licence | What |
@@ -14,4 +14,7 @@ history is the record of their local fixes.
 
 ## Local changes
 
-None.
+- `video/crt_chain.sv` (`2b25f70`): during the vertical blank `hb_out` is regenerated from the
+  DE window measured on the last picture line. Built from DE alone it stayed high through the
+  blank, and `sys/scandoubler.v` then produced no lines or VSync (`docs/LESSONS_LEARNED.md`,
+  "HBlank built from DE stops the scandoubler's VSync").

@@ -18,8 +18,8 @@ module mlc_video_timing (
 	output logic [8:0] dvpos,         // the displayed line: vpos - 1
 	output logic       hblank,        // hpos >= 320
 	output logic       vblank,        // dvpos not 8..247
-	output logic       hs,
-	output logic       vs,
+	output logic       hs,            // hpos 360..391
+	output logic       vs,            // dvpos 256..258
 
 	output logic       line_start,    // first clock of a line period
 	output logic       render_line_v, // the period renders a visible line

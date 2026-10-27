@@ -21,7 +21,7 @@
 module mlc_de156 (
 	input  logic         clk_cpu,
 	input  logic         reset,
-	input  logic         pause,
+	input  logic         pause,           // holds the CPU
 	input  logic         irq,             // IRQ, a level (MAME's ARM7_IRQ_LINE, HOLD_LINE)
 
 	output logic         cache_cs,
@@ -31,8 +31,9 @@ module mlc_de156 (
 	output logic [31:0]  cache_din,
 	output logic [3:0]   cache_dsn,
 	input  logic         cache_ok,
-	input  logic [31:0]  cpu_din
+	input  logic [31:0]  cpu_din          // the glue's read data, valid with cache_ok
 );
+	// the clock enable's 1 in 3
 	logic [1:0] div = 2'd0;
 	always_ff @(posedge clk_cpu) div <= (div == 2'd2) ? 2'd0 : div + 2'd1;
 

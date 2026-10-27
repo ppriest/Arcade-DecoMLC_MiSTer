@@ -17,7 +17,7 @@ module mlc_sprite_scan
 	input  logic         line_valid,       // a visible line follows line_start
 	input  logic [8:0]   scanline,         // MAME's number, 8..247
 	input  logic [1:0]   layout,           // gfx_layout: 0 4bpp, 1 5bpp, 2 6bpp, 3 acchi (mlc_video_pkg)
-	input  logic         parity,
+	input  logic         parity,           // frame parity for block flicker (v 278, 310)
 
 	// candidate and entry ports (mlc_sprite_list), one-clock reads
 	output logic [8:0]   cand_addr,
@@ -105,10 +105,10 @@ module mlc_sprite_scan
 	logic [6:0]  sel2;
 	always_comb begin
 		case (ysh[9:8])
-			2'd0: begin sel1 = 10'd0;         sel2 = 7'd0;        end
-			2'd1: begin sel1 = {2'b0, m1};    sel2 = {2'b0, h};   end
-			2'd2: begin sel1 = {1'b0, m1, 1'b0}; sel2 = {1'b0, h, 1'b0}; end
-			default: begin sel1 = m1x3;       sel2 = hx3;         end
+			2'd0:    begin sel1 = 10'd0;            sel2 = 7'd0;            end
+			2'd1:    begin sel1 = {2'b0, m1};       sel2 = {2'b0, h};       end
+			2'd2:    begin sel1 = {1'b0, m1, 1'b0}; sel2 = {1'b0, h, 1'b0}; end
+			default: begin sel1 = m1x3;             sel2 = hx3;             end
 		endcase
 	end
 

@@ -9,15 +9,15 @@ module mlc_sprite_engine
 	input  logic         clk,
 	input  logic         reset,
 
-	input  logic         line_start,
-	input  logic         line_valid,
-	input  logic [8:0]   scanline,
+	input  logic         line_start,       // first clock of a line period: abort, start the next line
+	input  logic         line_valid,       // the period renders a visible line
+	input  logic [8:0]   scanline,         // the line to render, MAME's number
 	input  logic [1:0]   layout,           // gfx_layout (mlc_video_pkg L_*)
-	input  logic         tiles128k,
-	input  logic         parity,
-	input  logic         alpha_on,
+	input  logic         tiles128k,        // 5bpp/6bpp/acchi: gfx->elements() is 0x20000, else 0x10000
+	input  logic         parity,           // frame parity for auto-flicker
+	input  logic         alpha_on,         // IRQ word 1 bits 7:6 (v 47, 101)
 
-	// registers
+	// registers, as latched at line_start (mlc_video)
 	input  logic [79:0]  clip_min_y,
 	input  logic [79:0]  clip_max_y,
 	input  logic [79:0]  clip_min_x,
@@ -56,7 +56,7 @@ module mlc_sprite_engine
 	output logic         ovr_ev            // pulse: line_start arrived with work unfinished
 );
 
-	// ---- scanner ----
+	// Scanner and hit FIFO
 	logic         s_vr_req, s_vr_ack;
 	logic [12:0]  s_vr_addr;
 	logic         s_mem_req, s_mem_ack, s_mem_take;
@@ -79,7 +79,7 @@ module mlc_sprite_engine
 		.pop(hit_pop), .dout(hit_out), .empty(hit_empty), .count()
 	);
 
-	// ---- drawer ----
+	// Drawer
 	logic         d_vr_req, d_vr_ack;
 	logic [14:0]  d_vr_addr;
 	logic         tab_req, tab_take, tab_ack, row_req, row_take, row_dv, row_pop;
@@ -97,8 +97,8 @@ module mlc_sprite_engine
 		.busy(draw_busy)
 	);
 
-	// ---- VRAM read mux: one-clock reads, the drawer first; a client's request is masked
-	// the clock after its ack so a level request is served once ----
+	// VRAM read mux: one-clock reads, the drawer first; a client's request is masked the clock
+	// after its ack so a level request is served once
 	logic d_mask, s_mask;
 	wire  d_grant = d_vr_req && !d_mask;
 	wire  s_grant = s_vr_req && !s_mask && !d_grant;
@@ -110,7 +110,7 @@ module mlc_sprite_engine
 		s_mask   <= s_grant;
 	end
 
-	// ---- the two SDRAM slots ----
+	// The two SDRAM slots
 	localparam logic [1:0] T_SCAN = 2'd0, T_TAB = 2'd1, T_ROW = 2'd2;
 	logic [1:0] slot_busy, slot_discard;
 	logic [1:0] slot_tag [0:1];

@@ -29,6 +29,7 @@ module sdram_port_cdc #(
 	output logic             valid,
 	output logic [8*GB-1:0]  rdata,
 
+	// sdram.sv's port
 	output logic [25:1]      port_addr,
 	output logic             port_wrl,
 	output logic             port_wrh,
@@ -39,7 +40,7 @@ module sdram_port_cdc #(
 );
 	localparam int QW = 1 + 1 + 1 + 25 + 16;     // we, wrl, wrh, addr[25:1], din
 
-	// ---- requests ----
+	// requests, clk to clk_sdram
 	logic          q_full, q_empty, q_pop;
 	logic [QW-1:0] q_din, q_dout;
 	assign q_din = {we, we && (we16 || !addr[0]), we && (we16 || addr[0]), addr[25:1],
@@ -49,7 +50,7 @@ module sdram_port_cdc #(
 		.rclk(clk_sdram), .rrst(reset_sdram), .pop(q_pop), .dout(q_dout), .empty(q_empty)
 	);
 
-	// ---- answers ----
+	// answers, clk_sdram to clk
 	logic              a_full, a_empty, a_push, a_pop;
 	logic [8*GB-1:0]   a_dout;
 	mlc_async_fifo #(.W(8 * GB), .AW(2)) u_ans (

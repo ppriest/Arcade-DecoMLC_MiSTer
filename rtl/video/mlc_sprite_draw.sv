@@ -66,10 +66,10 @@ module mlc_sprite_draw
 	output logic         lb_shadow_only,
 	input  logic [319:0] lb_written,
 
-	output logic         busy
+	output logic         busy              // a hit, row or pixel still in progress
 );
 
-	// ------------------------------------------------------------------ stage S: setup
+	// Stage S: setup
 	typedef enum logic [2:0] {S_IDLE, S_DIV, S_XB, S_CNT, S_STEP, S_HAND} sstate_t;
 	sstate_t sstate;
 	hit_t hs;
@@ -149,7 +149,7 @@ module mlc_sprite_draw
 	logic [1:0]         j_shadow;
 	logic [2:0]         j_clipper;
 
-	// ------------------------------------------------------------------ stage R: rows
+	// Stage R: rows
 	typedef enum logic [3:0] {
 		R_IDLE, R_ROW, R_TABW, R_TAB2, R_TAB2W, R_UNIT, R_ISSA, R_ISSXA, R_ISSB, R_ISSXB, R_PUSH, R_WALK,
 		R_DRAIN
@@ -267,7 +267,7 @@ module mlc_sprite_draw
 	                   (layout == L_6BPP)  ? {colsum[5:0], 6'b0} :
 	                   (layout == L_ACCHI) ? {1'b0, colsum[5:0], 5'b0} : {colsum, 4'b0};
 
-	// ------------------------------------------------------------------ stage E: pixels
+	// Stage E: pixels
 	typedef enum logic [2:0] {E_IDLE, E_GETA, E_GETXA, E_GETB, E_GETXB, E_RUN} estate_t;
 	estate_t estate;
 	logic               e_active, v1;
@@ -291,10 +291,10 @@ module mlc_sprite_draw
 	wire  [31:0]        s_at     = rq_out.start ? 32'd0 : e_s;
 	wire                in_new   = (s_at[31:20] == {8'b0, rq_out.t});
 	wire                in_cur   = (e_s[31:20] == {8'b0, e_t});
-	wire  [63:0]        e_data  = e_halfA ? curA[127:64] : curA[63:0];
-	wire  [63:0]        e_data2 = e_halfB ? curB[127:64] : curB[63:0];
-	wire  [31:0]        e_ext   = curXA[32*e_slotXA +: 32];
-	wire  [31:0]        e_ext2  = curXB[32*e_slotXB +: 32];
+	wire  [63:0]        e_data   = e_halfA ? curA[127:64] : curA[63:0];
+	wire  [63:0]        e_data2  = e_halfB ? curB[127:64] : curB[63:0];
+	wire  [31:0]        e_ext    = curXA[32*e_slotXA +: 32];
+	wire  [31:0]        e_ext2   = curXB[32*e_slotXB +: 32];
 
 	function automatic logic [3:0] pix4(input logic [63:0] g, input logic [3:0] x);
 		logic [2:0] b;
@@ -349,7 +349,7 @@ module mlc_sprite_draw
 			if (tab_take) tab_inflight <= 1'b1;
 			if (tab_ack)  tab_inflight <= 1'b0;
 
-			// ---------------- E2: the pixel evaluated last clock; none lands after the swap
+			// E2: write the pixel evaluated last clock; none lands after the swap
 			if (v1 && inclip && (pen2 != 10'd0) && !lb_written[x1[8:0]] && !line_start) begin
 				lb_we          <= 1'b1;
 				lb_x           <= x1[8:0];
@@ -357,7 +357,7 @@ module mlc_sprite_draw
 				lb_flags       <= e_shadow;
 				lb_shadow_only <= e_shadow_only;
 			end
-			// ---------------- E1
+			// E1: evaluate one pixel, step the source and screen x
 			v1 <= 1'b0;
 			if (e_active) begin
 				v1   <= !e_walk;
@@ -388,7 +388,7 @@ module mlc_sprite_draw
 				lastXB_v <= 1'b0;
 				rstate   <= (tab_take || (tab_inflight && !tab_ack)) ? R_DRAIN : R_IDLE;
 			end else begin
-				// ---------------- S
+				// S
 				case (sstate)
 					S_IDLE: begin
 						if (!hit_empty && !job_v) begin
@@ -501,7 +501,7 @@ module mlc_sprite_draw
 					default: sstate <= S_IDLE;
 				endcase
 
-				// ---------------- R
+				// R
 				case (rstate)
 					R_IDLE: begin
 						if (job_v) begin
@@ -686,7 +686,7 @@ module mlc_sprite_draw
 					default: rstate <= R_IDLE;
 				endcase
 
-				// ---------------- E
+				// E
 				case (estate)
 					E_IDLE: begin
 						if (!rq_empty && !rq_pop) begin

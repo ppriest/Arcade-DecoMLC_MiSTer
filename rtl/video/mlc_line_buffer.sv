@@ -16,15 +16,15 @@ module mlc_line_buffer (
 	input  logic         we,
 	input  logic [8:0]   wx,
 	input  logic [10:0]  wpen,
-	input  logic [1:0]   wflags,
-	input  logic         wshadow_only,
+	input  logic [1:0]   wflags,        // shadow flags, ORed into the pixel's
+	input  logic         wshadow_only,  // flags only, the pen untouched (v 114)
 	output logic [319:0] written,       // of the render bank
 
 	// scan-out, from the display bank
 	input  logic [8:0]   rx,
 	output logic [10:0]  rpen,          // next clock
-	output logic         rwritten,
-	output logic [1:0]   rflags
+	output logic         rwritten,      // next clock
+	output logic [1:0]   rflags         // next clock
 );
 
 	logic bank;                         // render bank; display is ~bank

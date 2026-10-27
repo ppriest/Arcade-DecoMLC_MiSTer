@@ -2,8 +2,8 @@
 // The DE156's program reads on SDRAM port 1: a direct-mapped cache of LINES 16-byte units in
 // block RAM, in place of sdram_narrow_bridge's one held unit (the SH-2 has its own 4 KB cache
 // and keeps the bridge). The ARM has no cache of its own here (Amber's is off: rtl/cpu/amber
-// PROVENANCE.md), so every fetch and literal load would otherwise be an SDRAM burst, and on the
-// sprites' worst lines the port's traffic made the engine overrun (sim/core_tb, stadhr96u).
+// PROVENANCE.md), so without this every fetch and literal load is an SDRAM burst, and on the
+// sprites' worst lines the port's traffic makes the engine overrun (sim/core_tb, stadhr96u).
 //
 // The client interface is sdram_narrow_bridge's with WORD_BYTES 4: req pulses with addr held
 // until valid pulses, data the 32-bit word (lower address in the low half). A hit answers two
@@ -20,6 +20,7 @@ module mlc_rom_cache #(
 	output logic         valid,
 	output logic [31:0]  data,
 
+	// the unit fetch on the port's arbiter: g_req held until g_valid
 	output logic         g_req,
 	output logic [25:0]  g_addr,
 	input  logic         g_valid,
