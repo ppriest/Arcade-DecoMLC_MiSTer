@@ -344,6 +344,17 @@ four ROMs (same CRCs). The board duplicates them for parallel access; the core n
 
 ## MiSTer integration: reset, ioctl download, CONF_STR
 
+### [DecoMLC] HBlank built from DE stops the scandoubler's VSync
+
+Any Scandoubler Fx froze the HDMI picture while the game ran on, on both cores. `crt_chain` made
+HBlank from DE, so it stayed high through the vertical blank. `sys/scandoubler.v` starts each
+output line at HBlank's fall and takes VSync at HSync, so it made no lines in the blank and its
+VSync never rose (`sim/sd_tb`: no VSync in eight frames, 479 HS a frame). HBlank must toggle on
+every line, blank lines included. `crt_chain` now regenerates it in the blank; the cores sharing
+that file (DreamWorld, KonamiGX, LethalEnforcers, Pandora, PlayChoice10, Psikyo, Silkroad) have the
+original. A wrong first guess, the HDMI rotator's tap, cost a build: the bench came second and
+should have come first.
+
 ### Never hold the memory path in the core reset
 
 MiSTer holds core `RESET` for the ENTIRE ROM download. Passing the composite reset into the SDRAM

@@ -28,11 +28,15 @@ encrypted ARM.
 
 ## History
 
+**Arcade-DecoMLC_20261027, Arcade-DecoMLC156_20261027**
+- Scandoubler Fx fixed: any setting froze the HDMI picture, on both cores. CRT Adjust's HBlank stayed
+  high through the vertical blank, so the scandoubler never produced VSync.
+
 **Arcade-DecoMLC_20261026, Arcade-DecoMLC156_20261026**
 - First release: All 5 games are playable. 
 - Including Skull Fang and Accii, and the test modes (which all hang in MAME due to raster IRQ handling)
 - Changed the sprite zoom algo to use a single accumulator and use the stride directly rather than a lookup table->scale
-- Known bug: Scandoubler FX seem to be busted. Will fix.
+- Known bug: Scandoubler FX seem to be busted (fixed in 20261027).
 
 ## Games
 
@@ -69,7 +73,7 @@ numbers for its other 320 x 240 boards (`cninja.cpp`), a choice recorded in `doc
 
 Where the logic sits on the Cyclone V, read from the compiled design with `scripts/floorplan.py`
 (default grouping; block names in [`docs/floorplan/`](docs/floorplan/)). The release builds of
-`f457314`, fitted Oct 26 2026.
+`2b25f70`, fitted Oct 27 2026.
 
 `DecoMLC`:
 
@@ -156,7 +160,7 @@ Keyboard, MAME's defaults: arrows / R F D G, buttons LCtrl LAlt Space LShift / A
 
 Known issues:
 
-- **Sprite X zoom differs from MAME by design** in development builds: one source accumulator a
+- **Sprite X zoom differs from MAME by design**: one source accumulator a
   sprite instead of MAME's per-tile restart.
 - The video timing is a choice, not a measurement (Video timing).
 - The palette is looked up a line after MAME draws the line; Stadium Hero '96 changes it mid-frame
@@ -172,12 +176,12 @@ progress; `docs/LESSONS_LEARNED.md` is what it cost.
 
 ### Resource usage
 
-The release builds of `f457314` on the DE10-nano's Cyclone V 5CSEBA6, speed grade 7, timing met
-(worst setup slack: `DecoMLC` 0.566 ns, `DecoMLC156` 0.260 ns):
+The release builds of `2b25f70` on the DE10-nano's Cyclone V 5CSEBA6, speed grade 7, timing met
+(worst setup slack over all clocks and corners: `DecoMLC` 0.355 ns, `DecoMLC156` 0.096 ns):
 
 | resource | `DecoMLC` | `DecoMLC156` | available |
 | --- | --- | --- | --- |
-| Logic (ALMs) | 26,667 | 27,017 | 41,910 |
+| Logic (ALMs) | 26,414 | 26,908 | 41,910 |
 | Block memory bits | 3,199,677 | 3,293,373 | 5,662,720 |
 | RAM blocks | 446 | 459 | 553 |
 | DSP blocks | 54 | 51 | 112 |

@@ -63,6 +63,8 @@ Steps for a release:
 
 `releases/Arcade-DecoMLC_20261026.rbf` is the `DecoMLC` build of `f457314`, default seed: worst setup slack 0.566 ns (clk_sys; SDRAM clock 0.638 ns), 26,667 ALMs (64%), 446 of 553 RAM blocks, 54 DSPs; md5 `23bd5fb32845968a33c283974a3ba25e`, the same bytes as `DecoMLC_30000009.rbf` on the board, where avengrgs reaches its attract (`debug/hw/avg_30000009_f457314.png`). Its `.mra` files list Test.
 
+`releases/Arcade-DecoMLC_20261027.rbf` and `releases/Arcade-DecoMLC156_20261027.rbf` are the release builds of `2b25f70` (the Scandoubler Fx fix), default seed. Worst setup slack over all clocks and corners: DecoMLC 0.355 ns (clk_sys), DecoMLC156 0.096 ns (the SDRAM clock). DecoMLC 26,414 ALMs, 446 RAM blocks; DecoMLC156 26,908 ALMs, 459 RAM blocks. md5 `f0059c7ab8e3b6ff4f158f63f7bd20dd` and `95f2ebf82917de1ed06abeae266d0262`, the same bytes as `DecoMLC_30000011.rbf` and `DecoMLC156_30000008.rbf` on the board, where Scandoubler Fx keeps the HDMI picture running (the owner's check on Skull Fang).
+
 ## Submitting the core upstream
 
 From the contribution guidelines (https://github.com/MiSTer-devel/Wiki_MiSTer/wiki/Contributing-a-Core-to-MiSTer-FPGA); check each before asking for a release.

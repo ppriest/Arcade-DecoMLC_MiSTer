@@ -123,6 +123,21 @@ module crt_chain #(
 	end
 
 	assign vb_out = active ? vb_line : adj_vb;
-	assign hb_out = active ? (adj_hb | hs_out) : adj_hb;
+	wire   hb_pic = active ? (adj_hb | hs_out) : adj_hb;
+
+	// hb_pic comes from DE, so it stays high through the vertical blank. The framework's
+	// scandoubler (any Scandoubler Fx) starts each line at HBlank's fall and takes VSync at
+	// HSync: with no fall there it made no lines and its VSync never rose, and HDMI stopped
+	// taking frames. In the blank, HBlank is regenerated where the last picture line had it.
+	logic       hs_c_d = 1'b0, hb_c_d = 1'b1;
+	logic [9:0] hc = '0, de_on = '0, de_off = '0;
+	always_ff @(posedge clk) if (ce_out) begin
+		hs_c_d <= hs_out;
+		hb_c_d <= hb_pic;
+		hc     <= (hs_out & ~hs_c_d) ? 10'd0 : hc + 10'd1;
+		if (!vb_out && hb_c_d && !hb_pic) de_on  <= hc;
+		if (!vb_out && !hb_c_d && hb_pic) de_off <= hc;
+	end
+	assign hb_out = vb_out ? !((hc >= de_on) && (hc < de_off)) : hb_pic;
 
 endmodule
