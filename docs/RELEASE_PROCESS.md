@@ -65,6 +65,8 @@ Steps for a release:
 
 `releases/Arcade-DecoMLC_20261027.rbf` and `releases/Arcade-DecoMLC156_20261027.rbf` are the release builds of `2b25f70` (the Scandoubler Fx fix), default seed. Worst setup slack over all clocks and corners: DecoMLC 0.355 ns (clk_sys), DecoMLC156 0.096 ns (the SDRAM clock). DecoMLC 26,414 ALMs, 446 RAM blocks; DecoMLC156 26,908 ALMs, 459 RAM blocks. md5 `f0059c7ab8e3b6ff4f158f63f7bd20dd` and `95f2ebf82917de1ed06abeae266d0262`, the same bytes as `DecoMLC_30000011.rbf` and `DecoMLC156_30000008.rbf` on the board, where Scandoubler Fx keeps the HDMI picture running (the owner's check on Skull Fang).
 
+`releases/Arcade-DecoMLC_20261031.rbf` and `releases/Arcade-DecoMLC156_20261031.rbf` are the YMZ280B fixes of issue #1 (9720d6a, 0712ca6), default seed: DecoMLC156 built from `0712ca6`, DecoMLC from `6fa39ad` (the same RTL; that commit changes only scripts). Worst setup slack over all clocks and corners: DecoMLC 0.128 ns (HDMI PLL; clk_sys 0.511 ns), DecoMLC156 0.203 ns (clk_sys). DecoMLC 26,902 ALMs, 446 RAM blocks; DecoMLC156 26,621 ALMs, 459 RAM blocks. md5 `a1218ae5a54263bb932c6f8850c1cb4c` and `2944611de4d9025ed62fb94f1deeeaaa`, the builds deployed as `DecoMLC_30000002.rbf` and `DecoMLC156_30000002.rbf`; on the board the owner heard Hoops '96 and Acchi without the held noise. Avengers on this build is not yet heard.
+
 ## Submitting the core upstream
 
 From the contribution guidelines (https://github.com/MiSTer-devel/Wiki_MiSTer/wiki/Contributing-a-Core-to-MiSTer-FPGA); check each before asking for a release.

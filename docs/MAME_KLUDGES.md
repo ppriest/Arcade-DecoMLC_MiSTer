@@ -55,3 +55,4 @@ Every set is `MACHINE_IMPERFECT_GRAPHICS`; `stadhr96j2` and the Skull Fang sets 
 | Module | MAME says | The module does | Kept because | Would settle it |
 |---|---|---|---|---|
 | YMZ280B (`rtl/sound/ymz280b`) | linear interpolation between a voice's samples with 9 bits of phase (`ymz280b.cpp:450`) | 6 bits (`PHASE_FRAC[8:3]`) | a few units a sample; the module is derived from MAME, not silicon, so this is precision, not evidence | a recording of the chip |
+| YMZ280B (`rtl/sound/ymz280b`) | a voice reaching its end ramps to zero by 15/16 a sample (`ymz280b.cpp:483-489`) | a step to zero at the end | one click's worth at the end of a sample that does not end at zero | a recording of the chip |

@@ -21,13 +21,14 @@ package YMZ280B_PKG;
 		bit         KON;	//
 		bit         KOFF;	//
 		bit         END;	//
+		bit         PLAY;	// DecoMLC local change: the voice is playing
 		bit         PHASE_OVF;
 		bit [ 8: 0] PHASE_FRAC;//Phase fractional
 		bit [23: 0] SA;	//Sample address 24.0
 		bit         SN;	//Sample nibble 0.1
 		bit [ 1: 0] MO;
 	} OP3_t;
-	parameter OP3_t OP3_RESET = '{3'h0,1'b0,1'b0,1'b0,1'b0,1'b0,9'h000,24'h000000,1'b0,2'b00};
+	parameter OP3_t OP3_RESET = '{3'h0,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0,9'h000,24'h000000,1'b0,2'b00};
 	
 	typedef struct packed
 	{
@@ -35,11 +36,12 @@ package YMZ280B_PKG;
 		bit         RST;	//
 		bit         KON;	//
 		bit         KOFF;	//
+		bit         PLAY;	// DecoMLC local change: the voice is playing
 		bit [ 5: 0] MODF;	//Modulation fractional
 		bit         PHASE_OVF;
 		bit [15: 0] WD;	//Wave form data
 	} OP4_t;
-	parameter OP4_t OP4_RESET = '{3'h0,1'b0,1'b0,1'b0,6'h00,1'b0,16'h0000};
+	parameter OP4_t OP4_RESET = '{3'h0,1'b0,1'b0,1'b0,1'b0,6'h00,1'b0,16'h0000};
 	
 	typedef struct packed
 	{

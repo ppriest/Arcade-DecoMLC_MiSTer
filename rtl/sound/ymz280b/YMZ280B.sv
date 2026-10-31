@@ -248,6 +248,7 @@ module YMZ280B
 				OP3.KON <= OP2.KON;
 				OP3.KOFF <= OP2.KOFF;
 				OP3.END <= END;
+				OP3.PLAY <= NEW_PLAY;
 				OP3.MO <= OP2.MO;
 				OP3.SA <= NEW_SA[24:1];
 				OP3.SN <= NEW_SA[0];
@@ -314,9 +315,12 @@ module YMZ280B
 				OP4.RST <= OP3.RST;
 				OP4.KON <= OP3.KON;
 				OP4.KOFF <= OP3.KOFF;
+				OP4.PLAY <= OP3.PLAY;
 				OP4.MODF <= OP3.PHASE_FRAC[8:3];
 				OP4.PHASE_OVF <= OP3.PHASE_OVF;
-				OP4.WD <= CUR_WAVE;
+				// DecoMLC local change (PROVENANCE.md): a voice that is not playing is silent, as in
+				// MAME; it held its decoder's last state and interpolated from stale samples
+				OP4.WD <= OP3.PLAY ? CUR_WAVE : 16'h0000;
 			end
 		end
 	end
@@ -326,8 +330,8 @@ module YMZ280B
 	
 	bit [15:0] PWD_RAM_D;
 	bit [15:0] PREV_WAVE_RAM0_Q,PREV_WAVE_RAM1_Q;
-	YMZ_CH_RAM #(3,16) PWD_RAM0(CLK, OP4.SLOT, OP4.WD          , OP4.PHASE_OVF & SLOT1_CE, OP4.SLOT, PREV_WAVE_RAM0_Q);
-	YMZ_CH_RAM #(3,16) PWD_RAM1(CLK, OP4.SLOT, PREV_WAVE_RAM0_Q, OP4.PHASE_OVF & SLOT1_CE, OP4.SLOT, PREV_WAVE_RAM1_Q);
+	YMZ_CH_RAM #(3,16) PWD_RAM0(CLK, OP4.SLOT, OP4.WD          , (OP4.PHASE_OVF | !OP4.PLAY) & SLOT1_CE, OP4.SLOT, PREV_WAVE_RAM0_Q);
+	YMZ_CH_RAM #(3,16) PWD_RAM1(CLK, OP4.SLOT, PREV_WAVE_RAM0_Q, (OP4.PHASE_OVF | !OP4.PLAY) & SLOT1_CE, OP4.SLOT, PREV_WAVE_RAM1_Q);
 	
 	//Operation 4: Interpolation
 	always @(posedge CLK or negedge RST_N) begin
@@ -346,7 +350,7 @@ module YMZ280B
 				OP5.RST <= OP4.RST;
 				OP5.KON <= OP4.KON;
 				OP5.KOFF <= OP4.KOFF;
-				OP5.WD <= Interpolate(/*OP4.*/PWD, OP4.WD, OP4.MODF);
+				OP5.WD <= OP4.PLAY ? Interpolate(/*OP4.*/PWD, OP4.WD, OP4.MODF) : 16'h0000;
 			end
 		end
 	end
@@ -438,7 +442,6 @@ module YMZ280B
 	always @(posedge CLK or negedge RST_N) begin
 		bit         WR_N_OLD,RD_N_OLD;
 		bit [ 1: 0] REG_RD_DELAY;
-		bit         CH_PLAY,CH_PLAY_OLD[8];
 		bit         MEM_START;
 		
 		if (!RST_N) begin
@@ -507,11 +510,10 @@ module YMZ280B
 						REG_WR <= 0;
 					end
 					
-					CH_PLAY = SA_RAM_Q[25];
-					if (SLOT1_CE) begin
-						CH_PLAY_OLD[OP2.SLOT] <= CH_PLAY;
-						if (!CH_PLAY && CH_PLAY_OLD[OP2.SLOT]) FLG[OP2.SLOT] <= 1;
-					end
+					// DecoMLC local change (PROVENANCE.md): only a sample end raises the flag, as in
+					// MAME (ymz280b.cpp 497-500, 688-693); a key-off raised it too. OP3 holds the
+					// previous slot until this edge
+					if (SLOT1_CE && OP3.END) FLG[OP3.SLOT] <= 1;
 					
 					//Memory access
 					if (CYCLE1_CE) begin

@@ -3,7 +3,7 @@
 | Stage | What |
 |---|---|
 | Upstream | srg320's `YMZ280B.sv` and `YMZ280B_pkg.sv`, `srg320/Arcade-SKNS_MiSTer rtl/SKNS/`, at `001965f1` (2026-09-18). Header: `//license:BSD-3-Clause (derived from MAME's ymz280b)`. Runs in that core beside the same SH7604 at 14.3 MHz. |
-| Here | Copied, then four local changes, each marked in the file (Local changes, below). |
+| Here | Copied, then six local changes, each marked in the file (Local changes, below). |
 
 No testbench ships upstream. Verification is against MAME register-write traces in Phase 3
 (`docs/ROADMAP.md`), and by ear on the board.
@@ -44,6 +44,22 @@ against MAME's resampled WAV, at equal loudness. Each is marked in the file.
    The module's own simulation model registers the read; every reader samples `Q` on a chip enable, several clocks after its address settles, so
    the two give the same results at the 1-in-6 enable, and the bench results above are this
    model's.
+
+5. **`YMZ280B.sv`, `YMZ280B_pkg.sv`: a voice that is not playing is silent.** The play flag rides
+   the pipeline (`OP3.PLAY`, `OP4.PLAY`); without it a voice keyed off or past its end kept its
+   decoder's state in the mix, and with its phase reset each sample it interpolated from stale
+   previous-sample words: hoops96 held -195 on both channels after its voices stopped at 10.8 s
+   where MAME is silent (`sim/ymz_tb +SET=hoops96`, issue #1); after, hoops96 tracks MAME at 0.979 over 19 s and
+   avengrgs is unchanged (0.976 over 30 s before and after). MAME outputs zero
+   (`ymz280b.cpp:472-495`; at a sample end it ramps to zero by 15/16 a sample, here a step to
+   zero); the previous-sample words are cleared while the voice is stopped.
+
+6. **`YMZ280B.sv`: only a sample end raises a status flag.** The flag was set whenever a voice
+   stopped, key-off included; MAME sets it only at the sample end, and a key-off cancels it
+   (`ymz280b.cpp:497-500`, `688-693`). The DE156 games read the status about twice a frame
+   (`debug/ymz_reads`, MAME read tap). Over 40 s of hoops96 play the chip stopped voices 24 times
+   at an end and 36 by key-off (`sim/ymz_tb +FTRACE=1`); MAME's status reads in 40 s of play show
+   24 non-zero values. The flag now comes from `OP3.END`.
 
 **Writes on a chip-enable clock are lost (not changed, worked around).** `REG_WR` is set on the
 clock the bus write's edge is seen and cleared on the chip's cycle enable, the clear written

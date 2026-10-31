@@ -105,9 +105,18 @@ module tb_ymz;
 	end
 
 	// ---- +KTRACE=1: every key-on and key-off as the chip takes it, and every register write ----
-	int ktrace = 0;
+	int ktrace = 0, ftrace = 0;
 	always_ff @(posedge clk) if (ktrace && u_ymz.SLOT1_CE && (u_ymz.OP2.KON || u_ymz.OP2.KOFF))
 		$display("%.6f s slot %0d %s", real'(now) / 84.0e6, u_ymz.OP2.SLOT, u_ymz.OP2.KON ? "KEY ON" : "key off");
+	// +FTRACE=1: every stop of a playing voice, the event that raises its status flag, and why:
+	// END is the sample end, the only one MAME flags (ymz280b.cpp 497-500)
+	logic [7:0] play_old = 8'd0;
+	always_ff @(posedge clk) if (u_ymz.SLOT1_CE) begin
+		play_old[u_ymz.OP3.SLOT] <= u_ymz.OP3.PLAY;
+		if (ftrace && play_old[u_ymz.OP3.SLOT] && !u_ymz.OP3.PLAY)
+			$display("%.6f s stop slot %0d %s", real'(now) / 84.0e6, u_ymz.OP3.SLOT,
+			         u_ymz.OP3.END ? "END" : u_ymz.OP3.KOFF ? "KOFF" : "other");
+	end
 	always_ff @(posedge clk) if (ktrace && u_ymz.REG_WR && u_ymz.CYCLE1_CE && u_ymz.REG_A[7:5] == 3'b000 && u_ymz.REG_A[1:0] == 2'b01)
 		$display("%.6f s   reg %02x <= %02x committed", real'(now) / 84.0e6, u_ymz.REG_A, u_ymz.REG_D);
 
@@ -170,6 +179,7 @@ module tb_ymz;
 		void'($value$plusargs("SECONDS=%d", seconds));
 		void'($value$plusargs("ROMLAT=%d", romlat));
 		void'($value$plusargs("KTRACE=%d", ktrace));
+		void'($value$plusargs("FTRACE=%d", ftrace));
 		void'($value$plusargs("VTRACE=%d", vtrace));
 		void'($value$plusargs("PTRACE=%d", ptrace));
 		void'($value$plusargs("STRACE=%d", strace));

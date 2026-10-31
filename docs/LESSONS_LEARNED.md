@@ -910,6 +910,19 @@ Count writes with the halves of a long merged, as the comparer does, and allow a
 within one instruction to differ in order when the same bytes are written: TG68K's exception
 frame and MOVEM order their 16-bit halves differently from MAME's 68020.
 
+### [DecoMLC] A bench that replays MAME's writes cannot see a wrong read; tap the reads too
+
+Hoops '96 and Acchi kept a background sound on the board that the YMZ280B bench, replaying
+MAME's register writes (`scripts/mame/ymzlog.lua`, `sim/ymz_tb`), never showed: with MAME's
+writes the chip's output followed MAME's through a whole match. The fault was on the read side.
+The chip raised a voice's status flag on key-off as well as at the sample end, where MAME flags
+only the end, and the DE156 games poll that status twice a frame and decide their next writes
+from it. A replay feeds the chip MAME's decisions, so a wrong status cannot change anything the
+bench sees. A MAME read tap on the chip (24 non-zero status reads in 40 s of play) against the
+bench's stops by cause (`+FTRACE=1`: 24 sample ends, 36 key-offs, all 60 flagged) showed it;
+flagging only the end removed the noise on the board. Before trusting a write-replay bench for a
+chip the CPU reads back, tap MAME's reads of it and compare what the RTL would have returned.
+
 ## Timing closure
 
 - **[BallySente] Ask the timing analyser which path fails; do not reason about it.** A filter

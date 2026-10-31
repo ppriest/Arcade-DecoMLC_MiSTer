@@ -28,6 +28,11 @@ encrypted ARM.
 
 ## History
 
+**Arcade-DecoMLC_20261031, Arcade-DecoMLC156_20261031**
+- Sound fix ([issue #1](https://github.com/ppriest/Arcade-DecoMLC_MiSTer/issues/1)): a background
+  noise in Hoops '96 and Acchi that held until another sound replaced it. A stopped YMZ280B voice
+  is now silent, and a key-off no longer raises the voice's end flag, which the DE156 games read.
+
 **Arcade-DecoMLC_20261027, Arcade-DecoMLC156_20261027**
 - Scandoubler Fx fixed: any setting froze the HDMI picture, on both cores. CRT Adjust's HBlank stayed
   high through the vertical blank, so the scandoubler never produced VSync.
@@ -73,7 +78,7 @@ numbers for its other 320 x 240 boards (`cninja.cpp`), a choice recorded in `doc
 
 Where the logic sits on the Cyclone V, read from the compiled design with `scripts/floorplan.py`
 (default grouping; block names in [`docs/floorplan/`](docs/floorplan/)). The release builds of
-`2b25f70`, fitted Oct 27 2026.
+`0712ca6`, fitted Oct 31 2026.
 
 `DecoMLC`:
 
@@ -176,12 +181,12 @@ progress; `docs/LESSONS_LEARNED.md` is what it cost.
 
 ### Resource usage
 
-The release builds of `2b25f70` on the DE10-nano's Cyclone V 5CSEBA6, speed grade 7, timing met
-(worst setup slack over all clocks and corners: `DecoMLC` 0.355 ns, `DecoMLC156` 0.096 ns):
+The release builds of `0712ca6` on the DE10-nano's Cyclone V 5CSEBA6, speed grade 7, timing met
+(worst setup slack over all clocks and corners: `DecoMLC` 0.128 ns, `DecoMLC156` 0.203 ns):
 
 | resource | `DecoMLC` | `DecoMLC156` | available |
 | --- | --- | --- | --- |
-| Logic (ALMs) | 26,414 | 26,908 | 41,910 |
+| Logic (ALMs) | 26,902 | 26,621 | 41,910 |
 | Block memory bits | 3,199,677 | 3,293,373 | 5,662,720 |
 | RAM blocks | 446 | 459 | 553 |
 | DSP blocks | 54 | 51 | 112 |

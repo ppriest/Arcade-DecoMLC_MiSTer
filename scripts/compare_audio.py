@@ -39,13 +39,15 @@ def main():
     ap.add_argument("--seconds", type=float, default=0, help="compare only the first n seconds")
     ap.add_argument("--wav", help="write the RTL's resampled output here")
     ap.add_argument("--rtl", default="debug/ymz/rtl.raw", help="the RTL's int16 stereo samples")
+    ap.add_argument("--mame", default="debug/ymz/avengrgs.wav", help="MAME's -wavwrite output")
+    ap.add_argument("--writes", default="debug/ymz/writes.txt", help="the run's register writes (scripts/mame/ymzlog.lua)")
     ap.add_argument("--no-gain", action="store_true", help="the file already has the volume byte applied (core_tb)")
     a = ap.parse_args()
 
-    w = wave.open("debug/ymz/avengrgs.wav")
+    w = wave.open(a.mame)
     mame = np.frombuffer(w.readframes(w.getnframes()), dtype="<i2").reshape(-1, 2).astype(np.float64)
     rtl = np.fromfile(a.rtl, dtype="<i2").reshape(-1, 2).astype(np.float64)
-    gain = 1.0 if a.no_gain else volume_gain("debug/ymz/writes.txt")
+    gain = 1.0 if a.no_gain else volume_gain(a.writes)
     frac = Fraction(48000 / a.rate).limit_denominator(4000)
     up = np.stack([resample_poly(rtl[:, c], frac.numerator, frac.denominator) for c in (0, 1)], axis=1) * gain
     n = min(len(up), len(mame))
